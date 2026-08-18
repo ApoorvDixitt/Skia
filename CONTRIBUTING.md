@@ -39,6 +39,18 @@ cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 Warnings are treated as errors on both sides — `--max-warnings 0` for TypeScript,
 `-D warnings` for Rust — so CI fails on anything ESLint or Clippy flags.
 
+## License headers
+
+Skia is Apache-2.0, so every new source file starts with a two-line header:
+
+```
+// Copyright 2026 Apoorv Dixit
+// SPDX-License-Identifier: Apache-2.0
+```
+
+By contributing you agree your contribution is licensed under the same terms — that's the
+default under [section 5](LICENSE) of the license, and there is no separate CLA to sign.
+
 ## Where code goes
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the module layout. The short version:

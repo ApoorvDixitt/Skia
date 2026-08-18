@@ -13,7 +13,7 @@ Live transcription, structured notes, and answers grounded in your own documents
 running on your machine, with your own API key or a fully local model.
 
 [![CI](https://github.com/ApoorvDixitt/Skia/actions/workflows/ci.yml/badge.svg)](https://github.com/ApoorvDixitt/Skia/actions/workflows/ci.yml)
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%C2%B7%20Windows-lightgrey.svg)](#build-it-yourself)
 [![Status](https://img.shields.io/badge/status-pre--alpha-orange.svg)](docs/ROADMAP.md)
 
@@ -158,4 +158,7 @@ Security problems should go through [private reporting](SECURITY.md), not a publ
 
 ## License
 
-[MIT](LICENSE) © 2026 Apoorv Dixit
+[Apache License 2.0](LICENSE) © 2026 Apoorv Dixit
+
+The license covers the code, including a patent grant. It deliberately does **not** cover the
+project's name or logo — see [TRADEMARKS.md](TRADEMARKS.md) for what that means in practice.

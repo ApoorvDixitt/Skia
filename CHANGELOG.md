@@ -8,6 +8,11 @@ version is `0.y.z`, anything may change between releases.
 
 ## [Unreleased]
 
+### Changed
+
+- Licensed under Apache-2.0 instead of MIT, for its explicit patent grant and because it
+  withholds trademark rights, keeping the project name and logo separate from the code grant.
+
 ### Added
 
 - Tauri v2 application shell with a React + TypeScript frontend.

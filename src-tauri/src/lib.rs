@@ -1,3 +1,6 @@
+// Copyright 2026 Apoorv Dixit
+// SPDX-License-Identifier: Apache-2.0
+
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
 fn greet(name: &str) -> String {

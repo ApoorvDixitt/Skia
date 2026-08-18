@@ -1,0 +1,18 @@
+Skia
+Copyright 2026 Apoorv Dixit
+
+This product is licensed under the Apache License, Version 2.0. A copy of the
+License is distributed with this software in the file named LICENSE, and is also
+available at http://www.apache.org/licenses/LICENSE-2.0
+
+Skia depends on third-party open source software that is downloaded at build
+time rather than redistributed in this repository. Those dependencies remain
+under their own licenses; see package.json and src-tauri/Cargo.toml for the
+authoritative lists, and pnpm-lock.yaml and src-tauri/Cargo.lock for exact
+resolved versions.
+
+If a future release bundles or vendors third-party code that carries its own
+NOTICE requirements, the required attributions belong in this file.
+
+The name "Skia" and the Skia logo are not licensed under the Apache License.
+See TRADEMARKS.md.
