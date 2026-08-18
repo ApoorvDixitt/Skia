@@ -24,11 +24,15 @@ You'll need:
 Before opening a pull request, run what CI runs:
 
 ```bash
+pnpm lint --max-warnings 0
 pnpm typecheck
 pnpm build
 cargo fmt --manifest-path src-tauri/Cargo.toml --check
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 ```
+
+Warnings are treated as errors on both sides — `--max-warnings 0` for TypeScript,
+`-D warnings` for Rust — so CI fails on anything ESLint or Clippy flags.
 
 ## Where code goes
 
