@@ -1,105 +1,160 @@
+<div align="center">
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/skia-mark-dark.png">
+  <img src="assets/skia-mark.png" alt="Skia" width="112">
+</picture>
+
 # Skia
 
-> A local-first meeting copilot. Live transcription, structured notes, and answers grounded in your own documents — running on your machine, with your own API key or a fully local model.
+**A local-first meeting copilot.**
+
+Live transcription, structured notes, and answers grounded in your own documents —
+running on your machine, with your own API key or a fully local model.
 
 [![CI](https://github.com/ApoorvDixitt/Skia/actions/workflows/ci.yml/badge.svg)](https://github.com/ApoorvDixitt/Skia/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Platform: macOS · Windows](https://img.shields.io/badge/platform-macOS%20%C2%B7%20Windows-lightgrey.svg)](#building-from-source)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%C2%B7%20Windows-lightgrey.svg)](#build-it-yourself)
+[![Status](https://img.shields.io/badge/status-pre--alpha-orange.svg)](docs/ROADMAP.md)
+
+</div>
+
+---
 
 > [!IMPORTANT]
-> **Status: pre-alpha. There is nothing to install yet.**
-> What exists today is a Tauri v2 shell that compiles and opens a window. None of the
-> features below are implemented. The [roadmap](docs/ROADMAP.md) is the honest picture of
-> what is built and what isn't — please read it before opening a feature request.
+> **Pre-alpha — there is nothing to install yet.**
+> Today this repository contains a Tauri v2 shell that compiles and opens a window. None of
+> the features below are implemented. [`docs/ROADMAP.md`](docs/ROADMAP.md) is the honest
+> account of what exists and what doesn't — worth reading before filing a feature request.
 >
-> `Skia` is a provisional codename (Greek *σκιά*, "shadow") and is likely to change before
-> the first release; it collides with [Google's Skia graphics library](https://skia.org),
-> with which this project has no affiliation.
+> `Skia` is a provisional codename (Greek *σκιά*, "shadow"). It collides with
+> [Google's Skia graphics library](https://skia.org), with which this project has no
+> affiliation, and will likely change before the first release — see [#1](https://github.com/ApoorvDixitt/Skia/issues/1).
 
-## What it will do
+## The idea
 
-Skia is meant to help *during* a conversation rather than after it:
+Most meeting tools hand you a transcript after everyone has hung up. Skia is meant to be
+useful *while* you're still talking — and to do it without shipping your conversations to
+somebody else's server.
 
-- **Live transcription** with speaker labels, from your microphone and the far end of the call.
-- **Answers while you talk** — trigger by hotkey and get a streamed answer that cites your own material.
-- **A first-class knowledge base** — drop in PDF, DOCX, TXT, or Markdown; answers link back to the exact passage they came from.
+- **Live transcription** with speaker labels, capturing both your microphone and the far end of the call.
+- **Answers while you talk.** Hit a hotkey and get a streamed answer that cites your own material.
+- **Your documents are the source of truth.** Drop in PDF, DOCX, TXT, or Markdown; every answer links back to the exact passage it came from.
 - **A post-call pack** — summary, action items, and a follow-up draft.
-- **Your choice of model** — OpenAI, Anthropic, Gemini, Groq, or OpenRouter with your own key, or fully local via Ollama and Whisper. The local path costs nothing to run.
-- **A quiet overlay** — no dock icon, no taskbar button, no bot joining your meeting, no notification sounds.
+- **Any model you like.** OpenAI, Anthropic, Gemini, Groq, or OpenRouter with your own key — or fully local through Ollama and Whisper, which costs nothing to run.
+- **A quiet overlay.** No dock icon, no taskbar button, no bot joining your meeting, no notification sounds.
 
-Everything lives on your device in SQLite. There is no Skia server, no account, and no telemetry.
+Everything is stored on your device in SQLite. There is no Skia server, no account, and no
+telemetry — the app talks only to the model provider you configured, and to GitHub to check
+for updates.
 
 ## What "quiet" actually means
 
-Skia keeps itself out of your way, but that means different things on different operating
-systems, and we would rather state the limits plainly than imply a guarantee the OS does not
-give us:
+Skia stays out of your way, but that means different things on different operating systems.
+Rather than ship a switch that implies a guarantee the OS doesn't give us, here is the real
+picture:
 
-| Capability | Windows 10 2004+ / 11 | macOS ≤ 14 | macOS 15+ |
-|---|---|---|---|
-| Excluded from screen capture and screen sharing | Yes | Yes (legacy capture paths) | **No — not guaranteed** |
-| No dock, taskbar, menu-bar, or alt-tab presence | Yes | Yes | Yes |
-| No bot joins the call | Yes | Yes | Yes |
-| Silent, remappable hotkeys | Yes | Yes | Yes |
-| Overlay never steals focus | Yes | Yes | Yes |
+| | Windows 10 2004+ / 11 | macOS ≤ 14 | macOS 15+ |
+|---|:---:|:---:|:---:|
+| Hidden from screen capture and sharing | ✅ | ✅ | ❌ |
+| No dock, taskbar, menu-bar, or alt-tab presence | ✅ | ✅ | ✅ |
+| No bot joins the call | ✅ | ✅ | ✅ |
+| Silent, remappable hotkeys | ✅ | ✅ | ✅ |
+| Never steals focus | ✅ | ✅ | ✅ |
 
 On **macOS 15 and later**, modern screen-capture APIs ignore the window-exclusion flag, so
-Skia's overlay *will* appear in a screen share or recording. The app will tell you this
-directly rather than showing a switch that implies otherwise. Confirming the exact behaviour
-on current macOS is [tracked work](docs/ROADMAP.md#phase-0--de-risk), not a settled question.
+the overlay *will* show up in a screen share or recording. The app says so directly instead
+of pretending otherwise. Pinning down the exact behaviour on current macOS is
+[open work](https://github.com/ApoorvDixitt/Skia/issues/3), not a settled question.
 
-Separately: none of this is protection against kernel-level monitoring, corporate device
-management, or a second camera. No user-space application can offer that, and Skia does not
+And to be explicit: none of this defends against device management, kernel-level monitoring,
+or someone pointing a second camera at your screen. No user-space app can, and Skia doesn't
 claim to.
 
 ## Intended use
 
-Skia is for keeping a better record of, and having better recall during, your own
-conversations: sales and customer calls, user interviews and discovery, recruiting screens,
-consulting sessions, and studying from your own notes.
+Skia is for having better recall during, and a better record of, **your own** conversations:
+sales and customer calls, user interviews and discovery, recruiting screens, consulting
+sessions, and studying from your own notes.
 
 Two things are yours to handle, not the app's:
 
-- **Consent.** Recording and transcription laws differ by jurisdiction — many places require
-  every participant to agree — and meeting platforms have their own policies on top of that.
-  Skia shows a visible indicator whenever it is listening, but obtaining consent is your
-  responsibility.
+- **Consent.** Recording and transcription laws vary by jurisdiction — many places require
+  everyone on the call to agree — and meeting platforms add their own policies. Skia shows a
+  visible indicator whenever it's listening, but getting consent is on you.
 - **Where you use it.** Please don't use Skia anywhere you've agreed not to use assistance.
   That isn't what this project is for.
 
-## Building from source
+## Build it yourself
 
-There are no releases yet, so building is the only way to run it.
+No releases exist yet, so building from source is the only way to run it.
 
-**Prerequisites**
-
-- [Rust](https://rustup.rs) (stable)
-- [Node.js](https://nodejs.org) 20 or newer, and [pnpm](https://pnpm.io) 9
-- **macOS:** Xcode Command Line Tools (`xcode-select --install`)
-- **Windows:** [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) and the WebView2 runtime (preinstalled on Windows 11)
+**You'll need** [Rust](https://rustup.rs) (stable) and [Node.js](https://nodejs.org) 20+ with
+[pnpm](https://pnpm.io) 9. On macOS, Xcode Command Line Tools (`xcode-select --install`); on
+Windows, the [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)
+and the WebView2 runtime (already present on Windows 11).
 
 ```bash
 git clone https://github.com/ApoorvDixitt/Skia.git
 cd Skia
 pnpm install
-pnpm tauri dev      # run in development
-pnpm tauri build    # produce a bundle in src-tauri/target/release/bundle
+pnpm tauri dev      # run with hot reload
+pnpm tauri build    # bundle into src-tauri/target/release/bundle
 ```
 
-Distribution will be through GitHub Releases, unsigned — see [docs/RELEASING.md](docs/RELEASING.md)
-for what that means for install warnings and updates.
+Before opening a pull request, run what CI runs:
+
+```bash
+pnpm lint --max-warnings 0
+pnpm typecheck
+pnpm build
+cargo fmt --manifest-path src-tauri/Cargo.toml --check
+cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+```
+
+## Under the hood
+
+A single [Tauri v2](https://tauri.app) app: React and TypeScript in the webview, with
+everything native, real-time, or filesystem-touching living in Rust behind Tauri's IPC.
+
+| | |
+|---|---|
+| Shell | Tauri v2 (Rust) |
+| Frontend | React, TypeScript, Vite |
+| Storage | SQLite with FTS5 |
+| Retrieval | sqlite-vec + BM25, fused and reranked |
+| Transcription | Deepgram Nova-3 (cloud) or whisper-rs (local) |
+| Audio capture | cpal, WASAPI loopback, ScreenCaptureKit / CoreAudio |
+
+One repository builds both platforms from the same commit; per-OS behaviour is handled with
+`#[cfg(target_os = "...")]` rather than separate branches.
 
 ## Documentation
 
-- [Architecture](docs/ARCHITECTURE.md) — how the app is put together and where code belongs
-- [Roadmap](docs/ROADMAP.md) — phases, priorities, and the open unknowns
-- [Releasing](docs/RELEASING.md) — versioning, tags, and the release pipeline
+| | |
+|---|---|
+| [Architecture](docs/ARCHITECTURE.md) | How the app fits together, where code belongs, and the design constraints that are expensive to discover late |
+| [Roadmap](docs/ROADMAP.md) | Phases, priorities, what's explicitly out of scope, and the open questions |
+| [Releasing](docs/RELEASING.md) | Versioning, the tag-driven pipeline, and what shipping unsigned means |
+| [Contributing](CONTRIBUTING.md) | Fork-and-pull-request workflow, commit conventions, local setup |
 
 ## Contributing
 
-Contributions are welcome, though the architecture is still moving quickly — please open an
-issue to discuss anything substantial before writing code. See
-[CONTRIBUTING.md](CONTRIBUTING.md) and the [Code of Conduct](CODE_OF_CONDUCT.md).
+Contributions are welcome. The architecture is still moving quickly, so for anything
+substantial please **open an issue first** — it saves you building against a design that's
+about to change.
+
+The workflow is standard fork-and-pull-request: fork the repo, branch off `main`, commit using
+[Conventional Commits](https://www.conventionalcommits.org), and open a PR. `main` is
+protected — CI has to pass on both macOS and Windows, and PRs are squash-merged to keep
+history linear. [`CONTRIBUTING.md`](CONTRIBUTING.md) has the exact commands.
+
+Good places to start: the [`phase-0`](https://github.com/ApoorvDixitt/Skia/labels/phase-0)
+issues are self-contained investigations that don't require understanding the whole codebase,
+and answering them genuinely shapes the project.
+
+Everyone participating is expected to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
+Security problems should go through [private reporting](SECURITY.md), not a public issue.
 
 ## License
 

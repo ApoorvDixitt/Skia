@@ -7,12 +7,17 @@ to change.
 
 ## Development setup
 
+Fork the repository on GitHub first (the **Fork** button, top right), then:
+
 ```bash
-git clone https://github.com/ApoorvDixitt/Skia.git
+git clone https://github.com/YOUR-USERNAME/Skia.git
 cd Skia
+git remote add upstream https://github.com/ApoorvDixitt/Skia.git
 pnpm install
 pnpm tauri dev
 ```
+
+Adding `upstream` now means you can pull in changes later without re-cloning.
 
 You'll need:
 
@@ -46,13 +51,42 @@ you whether an overlay behaves correctly.
 
 ## Workflow
 
-1. Branch off `main`: `feat/short-description` or `fix/short-description`.
-2. Keep commits atomic and use [Conventional Commits](https://www.conventionalcommits.org):
-   `feat(rag): add reciprocal rank fusion`, `fix: rebuild audio stream on device change`,
-   `docs: clarify the macOS capture matrix`.
-3. Make sure lint, typecheck, and build pass locally.
-4. Open a pull request, fill in the template, and link the related issue.
-5. Pull requests are squash-merged once checks pass, so `main` stays linear.
+Nobody pushes to `main` — it's protected, and all changes arrive as pull requests from a
+branch or a fork.
+
+```bash
+# 1. Start from an up-to-date main
+git checkout main
+git pull upstream main
+
+# 2. Branch. Use feat/ for features, fix/ for bug fixes
+git checkout -b feat/short-description
+
+# 3. Commit as you go, using Conventional Commits
+git commit -m "feat(rag): add reciprocal rank fusion"
+
+# 4. Run what CI runs (see above), then push to your fork
+git push -u origin feat/short-description
+```
+
+Then open a pull request against `ApoorvDixitt/Skia`'s `main` branch. GitHub will offer a
+"Compare & pull request" button after you push. Fill in the template and link the issue it
+addresses.
+
+A few conventions worth knowing:
+
+- **Commit messages** follow [Conventional Commits](https://www.conventionalcommits.org):
+  `feat(rag): add reciprocal rank fusion`, `fix: rebuild audio stream on device change`,
+  `docs: clarify the macOS capture matrix`. Keep each commit to one logical change, and use the
+  body to explain *why* rather than what.
+- **CI must pass** on both macOS and Windows before a PR can merge. It runs ESLint, TypeScript,
+  the frontend build, `cargo fmt`, and Clippy with warnings treated as errors.
+- **PRs are squash-merged**, so your branch becomes a single commit on `main` and history stays
+  linear. Commit as messily as you like on your branch — it gets collapsed.
+- **Draft PRs are welcome** if you want feedback before the work is finished.
+
+If review takes a while, feel free to nudge — this is a solo-maintained project, not a
+signal that the contribution isn't wanted.
 
 ## Reporting bugs and requesting features
 
