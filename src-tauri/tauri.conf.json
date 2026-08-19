@@ -12,13 +12,36 @@
   "app": {
     "windows": [
       {
-        "label": "main",
+        "label": "overlay",
         "title": "Skia",
-        "width": 720,
-        "height": 620,
+        "width": 680,
+        "height": 58,
+        "minWidth": 480,
+        "minHeight": 64,
+        "resizable": true,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
         "focus": true,
         "alwaysOnTop": true,
-        "skipTaskbar": true
+        "skipTaskbar": true,
+        "center": false,
+        "x": 380,
+        "y": 96
+      },
+      {
+        "label": "dashboard",
+        "title": "Skia",
+        "width": 1040,
+        "height": 720,
+        "minWidth": 820,
+        "minHeight": 560,
+        "resizable": true,
+        "decorations": true,
+        "transparent": false,
+        "focus": false,
+        "visible": false,
+        "center": true
       }
     ],
     "security": {
