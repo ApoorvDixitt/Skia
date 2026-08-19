@@ -176,13 +176,15 @@ export function AskBar() {
 
       <section className="limitation" aria-labelledby={limitationId}>
         <h3 className="limitation-title" id={limitationId}>
-          Nothing is being looked up
+          Retrieval is keyword-only, and nothing is cited
         </h3>
         <p className="limitation-text">
-          Retrieval is not wired in. Your documents are not searched, no meeting
-          transcript exists, and nothing is cited — an answer here comes from the
-          model&apos;s own weights, or from the mock&apos;s script. The grounded
-          answers in the README are not built yet.
+          Your documents <em>are</em> searched before an answer, but only by
+          keyword, so a question about &ldquo;money back&rdquo; will miss a
+          document that says &ldquo;refund&rdquo;. Sources are not shown as
+          citations yet, and no meeting transcript exists — anything not covered
+          by a matching document comes from the model&apos;s own weights, or from
+          the mock&apos;s script.
         </p>
       </section>
     </section>
