@@ -15,11 +15,16 @@
  *
  * The backend reports on the window that called it — this window — and the
  * copy here says so rather than speaking for the overlay.
+ *
+ * Copy discipline: every state is one tight inline sentence carrying the
+ * whole verdict, directives included. The MoreNote fold holds only the
+ * longer retelling — never a fact that appears nowhere else.
  */
 
 import { useId } from "react";
 
 import type { CaptureExclusion, Presence, SupportLevel } from "../lib/types";
+import { MoreNote } from "./notes";
 import "./status.css";
 
 type Tone = "strong" | "caution" | "alarm" | "off" | "unavailable";
@@ -37,17 +42,31 @@ const SUPPORT_COPY: Record<SupportLevel, SupportCopy> = {
   documented: {
     badge: "Documented",
     caption:
-      "The OS vendor documents and supports this mechanism. This is as strong as a guarantee gets for an app running in user space.",
+      "Vendor-documented and supported — as strong as a user-space guarantee gets.",
   },
   measured: {
     badge: "Measured · no guarantee",
     caption:
-      "Undocumented behaviour that we measured working on this OS version. It is not promised, the vendor advises against relying on it, and a point release can remove it without notice.",
+      "Measured on this OS version, never promised — a point release can remove it.",
   },
   unavailable: {
     badge: "Unavailable",
     caption: "This operating system offers no mechanism at all.",
   },
+};
+
+/**
+ * The longer telling of each caption, for the fold under the scale. Nothing
+ * lives here that the caption above does not already state — this is
+ * elaboration, not the record.
+ */
+const SUPPORT_LONG: Record<SupportLevel, string> = {
+  documented:
+    "The OS vendor documents and supports this mechanism. That is as strong as a guarantee gets for an app running in user space.",
+  measured:
+    "Undocumented behaviour that we measured working on this OS version rather than guessed at. It is not promised, the vendor advises against relying on it, and a point release can remove it without notice.",
+  unavailable:
+    "This operating system gives a user-space app no way at all to withhold a window's pixels from capture, documented or otherwise.",
 };
 
 /** Strongest first. `unavailable` lands on `none` so the drop is visible. */
@@ -166,7 +185,7 @@ function verdictFor(exclusion: CaptureExclusion): Verdict {
       tone: "unavailable",
       headline: "Not available on this system",
       detail:
-        "This OS has no way to withhold a window's pixels from a screen capture, so nothing is hiding them. Everything in this window shows up in a recording or a share.",
+        "This OS cannot withhold a window's pixels; everything shows in recordings and shares.",
     };
   }
   if (exclusion.active && exclusion.support === "documented") {
@@ -174,7 +193,7 @@ function verdictFor(exclusion: CaptureExclusion): Verdict {
       tone: "strong",
       headline: "Excluded from screen capture",
       detail:
-        "The OS is withholding this window's pixels from recordings and shares, through a mechanism its own vendor documents and supports.",
+        "The OS withholds this window's pixels from recordings and shares — vendor-documented.",
     };
   }
   if (exclusion.active) {
@@ -182,7 +201,7 @@ function verdictFor(exclusion: CaptureExclusion): Verdict {
       tone: "caution",
       headline: "Excluded — measured, not guaranteed",
       detail:
-        "This window's pixels are being withheld right now. The mechanism behind it is undocumented, so treat this as a bonus that could vanish in an OS update, not as protection you can plan around.",
+        "Pixels are withheld right now — undocumented, and an OS update can remove it. A bonus, not protection to plan around.",
     };
   }
   if (exclusion.requested) {
@@ -190,14 +209,13 @@ function verdictFor(exclusion: CaptureExclusion): Verdict {
       tone: "alarm",
       headline: "Requested — but NOT active",
       detail:
-        "You asked for capture exclusion and the OS did not apply it. Assume every pixel of this window is visible to anyone recording or sharing this screen.",
+        "You asked; the OS did not apply it. Assume every pixel is visible to anyone recording or sharing.",
     };
   }
   return {
     tone: "off",
     headline: "Off — this window is being captured",
-    detail:
-      "Capture exclusion is switched off, so this window appears in screen recordings and shares like any other window.",
+    detail: "This window appears in recordings and shares like any other.",
   };
 }
 
@@ -217,7 +235,7 @@ export function CaptureTier({ exclusion, pending, onChange }: CaptureTierProps) 
   const guarantee =
     exclusion.guarantee.trim().length > 0
       ? exclusion.guarantee
-      : "The backend reported no explanation. Read a missing explanation as a reason for suspicion, not comfort.";
+      : "The backend sent no explanation — read that as suspicion, not comfort.";
 
   return (
     <section
@@ -245,8 +263,8 @@ export function CaptureTier({ exclusion, pending, onChange }: CaptureTierProps) 
 
       {verdict.tone === "alarm" ? (
         <p className="st-warning" role="alert">
-          The switch below is still on because that is what you asked for. It
-          is not a claim that anything is hidden.
+          The switch is on because you asked — not a claim that anything is
+          hidden.
         </p>
       ) : null}
 
@@ -295,6 +313,15 @@ export function CaptureTier({ exclusion, pending, onChange }: CaptureTierProps) 
 
       <SupportScale level={exclusion.support} />
 
+      <MoreNote label="The fine print">
+        <p>{SUPPORT_LONG[exclusion.support]}</p>
+        <p>
+          The switch records one request, stored once for every Skia window;
+          the status above is what the OS actually did with it for this
+          window.
+        </p>
+      </MoreNote>
+
       <div className="st-control">
         <ToggleSwitch
           label="Request capture exclusion"
@@ -306,8 +333,8 @@ export function CaptureTier({ exclusion, pending, onChange }: CaptureTierProps) 
         />
         <p className="db-hint">
           {unavailable
-            ? "There is nothing to switch on — this OS has no mechanism to ask for."
-            : "The switch records one request, stored for every Skia window. The status above is what the OS actually did with it for this window."}
+            ? "Nothing to switch on — this OS has no mechanism to ask for."
+            : "Records one app-wide request; what the OS did with it is reported above."}
         </p>
       </div>
     </section>
@@ -381,8 +408,8 @@ export function PresenceTier({ presence }: PresenceTierProps) {
       </header>
 
       <p className="st-detail">
-        Ordinary window configuration rather than a capture trick, which is why
-        it does not vary by OS or need measuring. Reported for this window.
+        Ordinary window configuration, not a capture trick — the same on every
+        OS. Reported for this window.
       </p>
 
       <ul className="st-presence-list">
@@ -418,9 +445,9 @@ export function PresenceTier({ presence }: PresenceTierProps) {
 
       {allApplied ? null : (
         <p className="st-warning" role="alert">
-          Something above is not applied even though it should hold on every
-          OS. That is a real gap, reported rather than hidden — this window is
-          more noticeable than intended.
+          Something above is not applied, though it should hold on every OS —
+          a real gap, reported rather than hidden. This window is more
+          noticeable than intended.
         </p>
       )}
     </section>

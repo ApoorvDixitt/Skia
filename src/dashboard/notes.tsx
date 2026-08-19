@@ -10,6 +10,12 @@
  * - `LoadingNote` — waiting. Nothing is claimed until the backend answers.
  * - `FailNote`    — a real failure, with the backend's message verbatim.
  *                   Nothing is rendered in its place, because nothing was read.
+ *
+ * Plus `MoreNote`: progressive disclosure for long-form *elaboration*. The rule
+ * for what may go inside is strict — never an honesty invariant, a caveat, or a
+ * directive the reader must not miss, because collapsed `<details>` content is
+ * skippable by definition. Only the longer retelling of something already
+ * stated inline belongs here.
  */
 
 import type { ReactNode } from "react";
@@ -32,6 +38,22 @@ export function LoadingNote({ children }: NoteProps) {
       <span className="db-spinner" aria-hidden="true" />
       <span>{children}</span>
     </p>
+  );
+}
+
+interface MoreNoteProps {
+  /** The summary line, e.g. "The fine print". Kept short and quiet. */
+  label: string;
+  children: ReactNode;
+}
+
+/** Native `<details>`: keyboard- and screen-reader-operable with no state. */
+export function MoreNote({ label, children }: MoreNoteProps) {
+  return (
+    <details className="db-more">
+      <summary className="db-more-summary">{label}</summary>
+      <div className="db-more-body">{children}</div>
+    </details>
   );
 }
 

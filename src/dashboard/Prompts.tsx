@@ -200,9 +200,8 @@ export function Prompts() {
         <div className="db-head-copy">
           <h2 className="db-title">Prompts</h2>
           <p className="db-subtitle">
-            The system prompt Skia builds for each mode and profile. Edits are
-            validated when saved — a broken template fails here, not in the
-            middle of a call.
+            One system prompt per mode and profile, validated on save — a
+            broken template fails here, not mid-call.
           </p>
         </div>
       </header>
@@ -377,7 +376,12 @@ export function Prompts() {
             ) : null}
 
             <div className="pm-footer">
-              <div className="pm-vars">
+              {/* The rejection rule itself is in the subtitle and in the save
+                  error; the `title` only retells it beside the list. */}
+              <div
+                className="pm-vars"
+                title="Anything else is rejected when you save — the error names the placeholder and where it sits."
+              >
                 <span className="legend">A template may reference only</span>
                 <span className="pm-vars-list">
                   {VARIABLES.map((variable) => (
@@ -390,10 +394,6 @@ export function Prompts() {
                     </code>
                   ))}
                 </span>
-                <p className="db-hint">
-                  Anything else is rejected when you save — the error names the
-                  placeholder and where it sits.
-                </p>
               </div>
 
               <div className="pm-actions">
@@ -401,6 +401,8 @@ export function Prompts() {
                   type="button"
                   className="db-button"
                   disabled={!dirty || working || !editorReady}
+                  data-busy={save.kind === "saving"}
+                  aria-busy={save.kind === "saving"}
                   onClick={runSave}
                 >
                   {save.kind === "saving" ? "Saving…" : "Save"}
@@ -411,6 +413,8 @@ export function Prompts() {
                   disabled={
                     !overriddenHere || working || reset === "confirming"
                   }
+                  data-busy={reset === "working"}
+                  aria-busy={reset === "working"}
                   onClick={() => {
                     setReset("confirming");
                   }}
@@ -428,8 +432,7 @@ export function Prompts() {
               overriddenHere ? (
                 <p className="db-hint">
                   The {MODE_LABELS[mode]} mode carries at least one custom
-                  template. Reset returns this mode and profile to the shipped
-                  default.
+                  template — Reset returns this pair to the shipped default.
                 </p>
               ) : (
                 <p className="db-hint">

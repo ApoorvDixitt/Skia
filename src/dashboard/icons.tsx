@@ -35,22 +35,6 @@ function Glyph({ children }: GlyphProps) {
   );
 }
 
-/** Skia, "shadow": a crescent — the part of the disc the light does not reach. */
-export function BrandMark() {
-  return (
-    <svg
-      className="db-brand-mark"
-      width="22"
-      height="22"
-      viewBox="0 0 22 22"
-      fill="currentColor"
-      aria-hidden="true"
-    >
-      <path d="M19.25 11.72A8.25 8.25 0 1 1 10.28 2.75 6.42 6.42 0 0 0 19.25 11.72Z" />
-    </svg>
-  );
-}
-
 /** Stacked layers: documents cut into indexed chunks. */
 export function IconKnowledge() {
   return (
@@ -112,6 +96,69 @@ export function IconData() {
       <ellipse cx="8" cy="4.6" rx="4.9" ry="1.9" />
       <path d="M3.1 4.6v6.8c0 1.05 2.2 1.9 4.9 1.9s4.9-.85 4.9-1.9V4.6" />
       <path d="M3.1 8c0 1.05 2.2 1.9 4.9 1.9S12.9 9.05 12.9 8" />
+    </Glyph>
+  );
+}
+
+/* ---- row marks for the compact settings anatomy ---- */
+
+/** A cloud: the request leaves this machine. */
+export function IconCloud() {
+  return (
+    <Glyph>
+      <path d="M5 11.6h6.4a2.3 2.3 0 0 0 .5-4.55 3.2 3.2 0 0 0-6.2-.7A2.65 2.65 0 0 0 5 11.6Z" />
+    </Glyph>
+  );
+}
+
+/** A chip: the model runs on this machine. */
+export function IconChip() {
+  return (
+    <Glyph>
+      <rect x="4.9" y="4.9" width="6.2" height="6.2" rx="1.1" />
+      <path d="M8 2.7v2.2M8 11.1v2.2M2.7 8h2.2M11.1 8h2.2" />
+    </Glyph>
+  );
+}
+
+/** A scripted sheet: canned output, read from a file rather than a model. */
+export function IconScript() {
+  return (
+    <Glyph>
+      <rect x="4" y="2.9" width="8" height="10.2" rx="1.1" />
+      <path d="M6.3 6h3.4M6.3 8.4h3.4M6.3 10.8h2.2" />
+    </Glyph>
+  );
+}
+
+/** An arrow into a tray: the export leaves as a download. */
+export function IconExport() {
+  return (
+    <Glyph>
+      <path d="M8 2.9v6.2" />
+      <path d="M5.5 6.7 8 9.2l2.5-2.5" />
+      <path d="M3 10.6v1.6a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-1.6" />
+    </Glyph>
+  );
+}
+
+/** A bin: the purge destroys, and says so before it does. */
+export function IconBin() {
+  return (
+    <Glyph>
+      <path d="M3.4 4.7h9.2" />
+      <path d="M6.3 4.7V3.6a.8.8 0 0 1 .8-.8h1.8a.8.8 0 0 1 .8.8v1.1" />
+      <path d="M4.7 4.7l.5 7.6a1 1 0 0 0 1 .95h3.6a1 1 0 0 0 1-.95l.5-7.6" />
+    </Glyph>
+  );
+}
+
+/** A loop, for re-running first-run setup. */
+export function IconRerun() {
+  return (
+    <Glyph>
+      <path d="M13 8a5 5 0 1 1-1.6-3.7" />
+      <path d="M13 2.5V5h-2.5" />
     </Glyph>
   );
 }

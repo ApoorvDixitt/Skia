@@ -122,8 +122,8 @@ export function HistorySection() {
         <div className="db-head-copy">
           <h2 className="db-title">History</h2>
           <p className="db-subtitle">
-            Every session and message Skia has stored, read straight from the
-            local database on this device.
+            Every stored session and message, read straight from the local
+            database on this device.
           </p>
         </div>
         <div className="db-head-side">
@@ -210,7 +210,7 @@ export function HistorySection() {
                   </QuietNote>
                 ) : (
                   <>
-                    <ul className="hx-messages">
+                    <ul className="hx-messages db-stagger">
                       {history.search.results.map((message) => (
                         <MessageRow
                           key={message.id}
@@ -263,7 +263,7 @@ export function HistorySection() {
                   </QuietNote>
                 ) : (
                   <>
-                    <ul className="hx-list">
+                    <ul className="hx-list db-stagger">
                       {history.sessions.sessions.map((session) => (
                         <SessionRow
                           key={session.id}
@@ -320,7 +320,7 @@ export function HistorySection() {
                     ever stored in it.
                   </QuietNote>
                 ) : (
-                  <ul className="hx-messages">
+                  <ul className="hx-messages db-stagger">
                     {history.messages.messages.map((message) => (
                       <MessageRow key={message.id} message={message} />
                     ))}

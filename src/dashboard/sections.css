@@ -8,9 +8,17 @@
 
 /* ======================================================== knowledge base ==== */
 
-.kb-formats {
+/* The two facts worth knowing before adding files, one tight line each.
+   The longer telling of each lives in its `title`. */
+.kb-limits {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.kb-limit {
   margin: 0;
-  font-size: var(--t-sm);
+  font-size: var(--t-xs);
   color: var(--text-muted);
 }
 
@@ -83,6 +91,7 @@
   border-radius: var(--r-sm);
   background-color: var(--alarm-soft);
   font-size: var(--t-sm);
+  animation: db-rise var(--fast) var(--ease) both;
 }
 
 .kb-remove-confirm p {
@@ -104,6 +113,7 @@
   border: 1px solid var(--line);
   border-radius: var(--r);
   background-color: var(--sunken);
+  animation: db-rise var(--fast) var(--ease) both;
 }
 
 .kb-report-head {
@@ -122,6 +132,8 @@
   gap: 6px;
 }
 
+/* Rows are appended one at a time as files finish, so each arrives on its
+   own — no stagger, which would only delay a report that already exists. */
 .kb-report-row {
   display: flex;
   flex-direction: column;
@@ -131,6 +143,7 @@
   border-left-width: 3px;
   border-radius: var(--r-sm);
   background-color: var(--raised);
+  animation: db-rise var(--fast) var(--ease) both;
 }
 
 .kb-report-row[data-outcome="indexed"] {
@@ -376,21 +389,13 @@
 .pr-row {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 15px 16px;
+  gap: 8px;
+  padding: 12px 14px;
   border-top: 1px solid var(--line);
 }
 
 .pr-row:first-child {
   border-top: none;
-}
-
-.pr-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
-  flex-wrap: wrap;
 }
 
 .pr-name {
@@ -406,30 +411,32 @@
   letter-spacing: var(--track-tight);
 }
 
-.pr-note {
-  margin: 0;
-  max-width: 44rem;
-  font-size: var(--t-sm);
-  color: var(--text-muted);
-}
-
-.pr-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 14px;
-}
-
-.pr-meta-item {
+/* The one supporting line: the catalog's honest one-liner, then the default
+   model as a measured value. The full note and the provider id live in the
+   line's `title`s. */
+.pr-sub {
   display: flex;
   align-items: baseline;
-  gap: 6px;
+  gap: 12px;
+}
+
+.pr-sub-note {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pr-sub .measured {
+  flex-shrink: 0;
 }
 
 .pr-controls {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding-top: 10px;
+  padding-top: 8px;
   border-top: 1px solid var(--line);
 }
 
@@ -474,6 +481,7 @@
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
   background-color: var(--raised);
+  animation: db-rise var(--fast) var(--ease) both;
 }
 
 .pr-status[data-tone="alarm"] {
@@ -622,6 +630,7 @@
   border-radius: var(--r-sm);
   background-color: var(--alarm-soft);
   font-size: var(--t-sm);
+  animation: db-rise var(--fast) var(--ease) both;
 }
 
 .pm-confirm p {
@@ -635,20 +644,13 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 14px 16px;
+  padding: 12px 14px;
   border: 1px solid var(--line);
   border-radius: var(--r);
 }
 
 .yd-block--danger {
   border-color: var(--alarm-line);
-}
-
-.yd-lead {
-  margin: 0;
-  max-width: 44rem;
-  font-size: var(--t-sm);
-  color: var(--text-muted);
 }
 
 .yd-actions {
@@ -666,6 +668,7 @@
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
   background-color: var(--raised);
+  animation: db-rise var(--fast) var(--ease) both;
 }
 
 .yd-status[data-tone="alarm"] {
@@ -697,6 +700,7 @@
   border: 1px solid var(--alarm-line);
   border-radius: var(--r-sm);
   background-color: var(--alarm-soft);
+  animation: db-rise var(--fast) var(--ease) both;
 }
 
 .yd-confirm-title {

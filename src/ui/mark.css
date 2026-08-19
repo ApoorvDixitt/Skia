@@ -1,0 +1,17 @@
+/* Copyright 2026 Apoorv Dixit
+   SPDX-License-Identifier: Apache-2.0 */
+
+.mark-img {
+  display: inline-flex;
+  flex-shrink: 0;
+  line-height: 0;
+}
+
+.mark-img img {
+  display: block;
+  object-fit: contain;
+  /* The asset is a trimmed mark on transparency, so it needs no background and
+     must not be clipped by a radius. */
+  user-select: none;
+  -webkit-user-drag: none;
+}

@@ -21,7 +21,9 @@ import { useId, useRef, useState } from "react";
 
 import { exportFilename, formatBytes } from "../lib/format";
 import { fetchExport, purgeData } from "../lib/history";
+import { setOnboardingDone } from "../lib/onboarding";
 import { describeIpcError } from "../lib/stealth";
+import { IconBin, IconExport, IconRerun } from "./icons";
 import "./sections.css";
 
 type ExportState =
@@ -152,48 +154,61 @@ export function YourData() {
         <div className="db-head-copy">
           <h2 className="db-title">Your data</h2>
           <p className="db-subtitle">
-            Everything Skia stores lives in two SQLite files on this device —
-            the conversation history and the document index. Take a copy, or
-            destroy both.
+            Two SQLite files on this device — history and the document index.
+            Take a copy, or destroy both.
           </p>
         </div>
       </header>
 
       <div className="db-body">
         <div className="db-body-inner">
-          <section className="yd-block" aria-labelledby={exportHeadingId}>
-            <h3 className="db-block-title legend" id={exportHeadingId}>
-              Export
-            </h3>
-            <p className="yd-lead">
-              One JSON file holding both databases. Nothing is uploaded and
-              nothing is kept elsewhere, so an export is the only copy you will
-              have.
-            </p>
+          <RerunSetup />
 
-            <div className="yd-actions">
-              <button
-                type="button"
-                className="db-button"
-                disabled={busy}
-                onClick={runExport}
-              >
-                {exportState.kind === "working"
-                  ? "Exporting…"
-                  : "Export as JSON"}
-              </button>
-              {exportState.kind === "offered" ? (
+          <section className="yd-block" aria-labelledby={exportHeadingId}>
+            <div className="db-row">
+              <span className="db-row-icon">
+                <IconExport />
+              </span>
+              <div className="db-row-copy">
+                <h3 className="db-row-title" id={exportHeadingId}>
+                  Export
+                </h3>
+                <p
+                  className="db-row-sub"
+                  title="Nothing is uploaded and nothing is kept elsewhere — the export is the only copy you will have."
+                >
+                  One JSON file holding both databases — the only copy you
+                  will have.
+                </p>
+              </div>
+              <div className="db-row-control">
+                {exportState.kind === "offered" ? (
+                  <button
+                    type="button"
+                    className="db-button db-button--ghost"
+                    disabled={copyState.kind === "working"}
+                    data-busy={copyState.kind === "working"}
+                    aria-busy={copyState.kind === "working"}
+                    onClick={runCopy}
+                  >
+                    {copyState.kind === "working"
+                      ? "Copying…"
+                      : "Copy JSON instead"}
+                  </button>
+                ) : null}
                 <button
                   type="button"
-                  className="db-button db-button--ghost"
-                  disabled={copyState.kind === "working"}
-                  onClick={runCopy}
+                  className="db-button"
+                  disabled={busy}
+                  data-busy={exportState.kind === "working"}
+                  aria-busy={exportState.kind === "working"}
+                  onClick={runExport}
                 >
-                  {copyState.kind === "working"
-                    ? "Copying…"
-                    : "Copy JSON instead"}
+                  {exportState.kind === "working"
+                    ? "Exporting…"
+                    : "Export as JSON"}
                 </button>
-              ) : null}
+              </div>
             </div>
 
             {exportState.kind === "offered" ? (
@@ -211,17 +226,15 @@ export function YourData() {
                 </p>
                 {exportState.wellFormed ? (
                   <p className="yd-status-detail">
-                    The text parsed as JSON. Whether the file reached your disk
-                    is up to the webview — Skia cannot see that, so check your
-                    downloads folder, and use “Copy JSON instead” if nothing
-                    arrived.
+                    Parsed as JSON. Whether it reached disk is the webview’s
+                    business — check your downloads, and use “Copy JSON
+                    instead” if nothing arrived.
                   </p>
                 ) : (
                   <>
                     <p className="yd-status-detail">
-                      It does not parse as JSON, so do not treat it as a usable
-                      export. It was still offered rather than withheld from
-                      you.
+                      It does not parse as JSON — not a usable export, though
+                      offered rather than withheld.
                     </p>
                     {exportState.problem === null ? null : (
                       <p className="db-fail-error">
@@ -265,30 +278,37 @@ export function YourData() {
             className="yd-block yd-block--danger"
             aria-labelledby={purgeHeadingId}
           >
-            <h3 className="db-block-title legend" id={purgeHeadingId}>
-              Purge
-            </h3>
-            <p className="yd-lead">
-              Deletes every session, every stored message, and every indexed
-              document from this device, along with the search indexes over
-              them. API keys are not part of this — they live in the OS
-              keychain and are removed per provider in the Providers section.
-            </p>
-
-            {purgeState.kind === "idle" || purgeState.kind === "done" ? (
-              <div className="yd-actions">
-                <button
-                  type="button"
-                  className="db-button db-button--danger"
-                  disabled={busy}
-                  onClick={() => {
-                    setPurgeState({ kind: "confirming" });
-                  }}
+            <div className="db-row">
+              <span className="db-row-icon">
+                <IconBin />
+              </span>
+              <div className="db-row-copy">
+                <h3 className="db-row-title" id={purgeHeadingId}>
+                  Purge
+                </h3>
+                <p
+                  className="db-row-sub"
+                  title="Also removes the search indexes over them. API keys are not part of this — they live in the OS keychain and are removed per provider in the Providers section."
                 >
-                  Delete everything…
-                </button>
+                  Deletes every session, message, and indexed document on this
+                  device — not API keys, which live in the OS keychain.
+                </p>
               </div>
-            ) : null}
+              {purgeState.kind === "idle" || purgeState.kind === "done" ? (
+                <div className="db-row-control">
+                  <button
+                    type="button"
+                    className="db-button db-button--danger"
+                    disabled={busy}
+                    onClick={() => {
+                      setPurgeState({ kind: "confirming" });
+                    }}
+                  >
+                    Delete everything…
+                  </button>
+                </div>
+              ) : null}
+            </div>
 
             {purgeState.kind === "confirming" ? (
               <div className="yd-confirm">
@@ -296,10 +316,9 @@ export function YourData() {
                   Delete everything, permanently?
                 </p>
                 <p className="yd-confirm-text">
-                  This removes both databases’ contents — history and the
-                  document index. <strong>It cannot be undone.</strong> There
-                  is no backup and no copy on any server. Export first if you
-                  want one.
+                  Both databases — history and the document index.{" "}
+                  <strong>It cannot be undone.</strong> There is no backup and
+                  no copy on any server; export first if you want one.
                 </p>
                 <div className="yd-actions">
                   <button
@@ -323,9 +342,10 @@ export function YourData() {
             ) : null}
 
             {purgeState.kind === "working" ? (
-              <p className="db-okline" role="status">
-                Deleting…
-              </p>
+              <div className="db-working" role="status">
+                <p className="db-okline">Deleting…</p>
+                <span className="db-busybar" aria-hidden="true" />
+              </div>
             ) : null}
 
             {purgeState.kind === "done" ? (
@@ -334,9 +354,9 @@ export function YourData() {
                   The backend reported the purge completed.
                 </p>
                 <p className="yd-status-detail">
-                  Nothing here assumes the databases are now empty: the other
-                  sections re-read from disk every time you open them, so what
-                  they show next is what was actually read.
+                  Nothing is assumed empty — each section re-reads from disk
+                  when opened, so what it shows next is what was actually
+                  read.
                 </p>
               </div>
             ) : null}
@@ -360,5 +380,74 @@ export function YourData() {
         </div>
       </div>
     </>
+  );
+}
+
+/**
+ * Re-runs first-run setup.
+ *
+ * The gate lives in `App.tsx`, which reads `onboarding_done` once when the
+ * dashboard window loads. Clearing the flag therefore needs a reload to take
+ * effect — done deliberately rather than by threading a callback down, since a
+ * reload of a local page is instant and leaves one source of truth for the gate.
+ */
+function RerunSetup() {
+  const headingId = useId();
+  const [state, setState] = useState<
+    { kind: "idle" } | { kind: "working" } | { kind: "failed"; message: string }
+  >({ kind: "idle" });
+
+  const rerun = (): void => {
+    setState({ kind: "working" });
+    void setOnboardingDone(false).then(
+      () => {
+        window.location.reload();
+      },
+      (error: unknown) => {
+        setState({ kind: "failed", message: describeIpcError(error) });
+      },
+    );
+  };
+
+  return (
+    <section className="yd-block" aria-labelledby={headingId}>
+      <div className="db-row">
+        <span className="db-row-icon">
+          <IconRerun />
+        </span>
+        <div className="db-row-copy">
+          <h3 className="db-row-title" id={headingId}>
+            Run setup again
+          </h3>
+          <p
+            className="db-row-sub"
+            title="Nothing is deleted: your documents, history, prompts and saved keys all stay exactly as they are. Setup simply walks through the choices again."
+          >
+            Walks through the first-run steps. Deletes nothing.
+          </p>
+        </div>
+        <div className="db-row-control">
+          <button
+            type="button"
+            className="db-button"
+            onClick={rerun}
+            disabled={state.kind === "working"}
+            data-busy={state.kind === "working" ? "yes" : undefined}
+            aria-busy={state.kind === "working"}
+          >
+            {state.kind === "working" ? "Opening\u2026" : "Run setup"}
+          </button>
+        </div>
+      </div>
+
+      {state.kind === "failed" ? (
+        <div className="yd-status" data-tone="alarm" role="alert">
+          <p className="yd-status-text">Setup could not be reopened.</p>
+          <p className="db-fail-error">
+            <code data-selectable="">{state.message}</code>
+          </p>
+        </div>
+      ) : null}
+    </section>
   );
 }

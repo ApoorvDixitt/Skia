@@ -24,7 +24,7 @@ export function StatusDot({ state }: { state: StealthState }) {
     return (
       <span
         className="dot dot--unknown"
-        title="Checking what the operating system actually applied…"
+        title="Checking what the OS actually applied…"
         aria-label="Capture status: checking"
       />
     );
@@ -34,22 +34,25 @@ export function StatusDot({ state }: { state: StealthState }) {
     return (
       <span
         className="dot dot--alarm"
-        title={`Capture status unknown — ${state.message}\n\nUnknown is not the same as hidden. Treat this window as visible.`}
+        title={`Capture status unknown — ${state.message}\nTreat this window as visible.`}
         aria-label="Capture status: unknown, treat this window as visible"
       />
     );
   }
 
   const { captureExclusion: cap, windowEnumerable } = state.status;
+  // The pixels-vs-presence point, phrased as capability ("can") so it stays
+  // true whether exclusion is on, off, or failing: no OS lets an app hide from
+  // other apps the fact that its window exists.
   const enumerationNote = windowEnumerable
-    ? "\n\nEither way, other apps can still see this window exists. Pixels are hidden; presence is not."
+    ? "\nPixels can hide; the window's presence cannot."
     : "";
 
   if (cap.requested && !cap.active) {
     return (
       <span
         className="dot dot--alarm"
-        title={`Capture exclusion was requested but the OS did NOT apply it.\n\nAssume this window is visible in screen shares and recordings.${enumerationNote}`}
+        title={`Capture exclusion requested but NOT applied by the OS — assume this window IS visible in screen shares.${enumerationNote}`}
         aria-label="Capture exclusion requested but not active — this window is visible"
       />
     );
@@ -59,7 +62,7 @@ export function StatusDot({ state }: { state: StealthState }) {
     return (
       <span
         className="dot dot--off"
-        title={`Capture exclusion is off. This window appears in screen shares like any other.${enumerationNote}`}
+        title={`Capture exclusion is off — this window appears in screen shares.${enumerationNote}`}
         aria-label="Capture exclusion off"
       />
     );
@@ -69,7 +72,7 @@ export function StatusDot({ state }: { state: StealthState }) {
   return (
     <span
       className={measured ? "dot dot--measured" : "dot dot--documented"}
-      title={`Hidden from screen capture — ${measured ? "measured, NOT guaranteed" : "documented"}.\n\n${cap.mechanism ?? "unknown mechanism"}\n\n${cap.guarantee}${enumerationNote}`}
+      title={`Hidden from screen capture — ${measured ? "measured, NOT guaranteed" : "documented"}.\n${cap.guarantee}${enumerationNote}`}
       aria-label={
         measured
           ? "Hidden from screen capture, measured but not guaranteed"

@@ -39,6 +39,9 @@ const DEFAULT_TOGGLE_SHORTCUT: &str = if cfg!(target_os = "macos") {
 };
 
 const KEY_CAPTURE_EXCLUSION: &str = "stealth.capture_exclusion_requested";
+/// Whether first-run setup has been finished or deliberately skipped. Skipping
+/// counts: onboarding must not reappear just because the user declined it.
+const KEY_ONBOARDING_DONE: &str = "onboarding.completed";
 const KEYCHAIN_SERVICE: &str = "dev.skia.apikeys";
 /// The compact always-on-top bar that sits over a call.
 const OVERLAY_LABEL: &str = "overlay";
@@ -47,6 +50,11 @@ const OVERLAY_LABEL: &str = "overlay";
 const DASHBOARD_LABEL: &str = "dashboard";
 /// How many knowledge-base chunks to put in front of the model.
 const RETRIEVAL_LIMIT: u32 = 6;
+
+/// Marker placed in managed state during setup when first-run setup is pending,
+/// so `RunEvent::Ready` knows to bring the dashboard up. A marker rather than a
+/// flag on `AppState` because it is read once and never changes.
+struct NeedsSetup;
 
 /// Shared application state. `rusqlite::Connection` is not `Sync`, so both
 /// databases sit behind mutexes.
@@ -89,6 +97,30 @@ fn read_capture_preference(store: &Store) -> Result<bool, storage::StoreError> {
         .get_setting(KEY_CAPTURE_EXCLUSION)?
         .map(|v| v == "true")
         .unwrap_or(true))
+}
+
+/// Defaults to `false`, so a fresh install gets setup and an existing one that
+/// somehow lost the row gets it again rather than silently skipping it.
+fn read_onboarding_done(store: &Store) -> Result<bool, storage::StoreError> {
+    Ok(store
+        .get_setting(KEY_ONBOARDING_DONE)?
+        .map(|v| v == "true")
+        .unwrap_or(false))
+}
+
+// ------------------------------------------------------------- onboarding ----
+
+#[tauri::command]
+fn onboarding_done(state: tauri::State<'_, AppState>) -> Result<bool, String> {
+    state.with_store(read_onboarding_done)
+}
+
+/// Records completion. Also used with `false` to re-run setup from the dashboard.
+#[tauri::command]
+fn set_onboarding_done(done: bool, state: tauri::State<'_, AppState>) -> Result<(), String> {
+    state.with_store(|store| {
+        store.set_setting(KEY_ONBOARDING_DONE, if done { "true" } else { "false" })
+    })
 }
 
 // ---------------------------------------------------------------- stealth ----
@@ -715,6 +747,7 @@ pub fn run() {
             let store = Store::open(&dir.join("skia.db"))?;
             let kb = KnowledgeBase::open(&dir.join("skia-kb.db"))?;
             let requested = read_capture_preference(&store)?;
+            let needs_setup = !read_onboarding_done(&store)?;
 
             app.manage(AppState {
                 store: Mutex::new(store),
@@ -738,6 +771,14 @@ pub fn run() {
             }
 
             register_toggle_shortcut(app.handle())?;
+
+            // On a first run the overlay alone is a dead end: there is no
+            // provider configured, so asking anything fails. Bring the dashboard
+            // up so setup is the first thing seen. Stashed for RunEvent::Ready,
+            // because showing a window this early does not stick.
+            if needs_setup {
+                app.manage(NeedsSetup);
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -764,6 +805,8 @@ pub fn run() {
             prompts_template,
             prompts_set_override,
             prompts_reset,
+            onboarding_done,
+            set_onboarding_done,
             export_data,
             purge_data
         ])
@@ -819,6 +862,19 @@ pub fn run() {
                         // and `Presence::no_dock_icon` reports `false`.
                     }
                     None => eprintln!("skia: no overlay window to show"),
+                }
+
+                // First run: the overlay alone is a dead end with no provider
+                // configured, so put setup in front of the user.
+                if handle.try_state::<NeedsSetup>().is_some() {
+                    match handle.get_webview_window(DASHBOARD_LABEL) {
+                        Some(dashboard) => {
+                            if let Err(e) = dashboard.show().and_then(|()| dashboard.set_focus()) {
+                                eprintln!("skia: could not open first-run setup: {e}");
+                            }
+                        }
+                        None => eprintln!("skia: no dashboard window for first-run setup"),
+                    }
                 }
             }
         });
