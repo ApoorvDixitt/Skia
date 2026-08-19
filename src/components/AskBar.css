@@ -1,0 +1,76 @@
+/* Copyright 2026 Apoorv Dixit
+   SPDX-License-Identifier: Apache-2.0
+
+   Dashed edges and muted controls read as "not finished yet" rather than
+   "broken". Nothing in here is interactive, because nothing behind it exists. */
+
+.askbar {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 11px 12px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius);
+  background-color: transparent;
+}
+
+.askbar-row {
+  display: flex;
+  gap: 7px;
+}
+
+.askbar-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font: inherit;
+  font-size: 0.8125rem;
+  color: var(--text);
+  background-color: var(--surface-sunken);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 7px 10px;
+}
+
+.askbar-input:disabled {
+  color: var(--text-faint);
+  cursor: not-allowed;
+}
+
+.askbar-input::placeholder {
+  color: var(--text-faint);
+}
+
+.askbar-button {
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  padding: 7px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background-color: var(--surface-sunken);
+  color: var(--text-faint);
+  cursor: not-allowed;
+  flex-shrink: 0;
+}
+
+.askbar-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 7px;
+  margin: 0;
+  font-size: 0.6875rem;
+  color: var(--text-faint);
+}
+
+.askbar-tag {
+  padding: 1px 7px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  font-size: 0.5625rem;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  white-space: nowrap;
+}

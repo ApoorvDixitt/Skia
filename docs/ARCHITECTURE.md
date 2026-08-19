@@ -62,7 +62,7 @@ Skia/
 │  ├─ prompts/              # default system prompts and profiles
 │  └─ lib/testing/          # dev panel, mock provider, retrieval eval
 ├─ src-tauri/src/
-│  ├─ overlay.rs            # window and capture behaviour, cfg-gated per OS
+│  ├─ stealth.rs            # capture exclusion + presence, and honest reporting of both
 │  ├─ audio/                # capture, device hot-swap, resampling
 │  ├─ stt/                  # transcription backends and endpointing
 │  ├─ rag/                  # sqlite-vec + FTS5 + reranking
@@ -116,10 +116,24 @@ results are combined with reciprocal rank fusion, and the top results are rerank
 keep character offsets so an answer can cite the exact source span. A lightweight gate decides
 whether a turn needs the knowledge base at all, so small talk skips lookup entirely.
 
-**Capture protection is per-OS and honest.** Windows uses `WDA_EXCLUDEFROMCAPTURE`; macOS 14
-and earlier use `NSWindow.sharingType = .none`. On macOS 15+ the flag is ignored by modern
-capture APIs. The UI must reflect what is actually active on the current OS and never present
-a single boolean implying more. See the matrix in the [README](../README.md#what-quiet-actually-means).
+**Capture protection needs no hand-written native code.** Tauri's `set_content_protected`
+already maps to `SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)` on Windows and
+`NSWindow.sharingType = .none` on macOS — verified by reading `tao`'s platform implementations,
+and exactly the two mechanisms the [harness](../tools/macos-capture-harness) measured. So Skia
+depends on neither `objc2` nor the `windows` crate for this, and carries no `unsafe` blocks.
+The same applies to presence invisibility: `set_activation_policy(Accessory)`,
+`set_skip_taskbar`, `set_always_on_top`, and `set_visible_on_all_workspaces` are all Tauri APIs.
+
+**The support level is part of the data model, not a UI detail.** `stealth.rs` reports
+`documented` for Windows and `measured` for macOS, because one is a vendor contract and the
+other is an observation a point release could undo. The status a command returns describes what
+actually took effect, never what was requested, so a caller cannot accidentally present a
+capability the OS did not deliver — and a requested-but-inactive exclusion produces an explicit
+warning rather than silence. See the matrix in the
+[README](../README.md#what-quiet-actually-means).
+
+**Pixels are not presence.** `window_enumerable` is hardcoded `true` and always surfaced. No
+public API on either platform hides a window's *existence*, owning process, or geometry.
 
 **Nothing leaves the device unless the user configured it.** No backend, no accounts, no
 telemetry. Outbound traffic goes only to the model provider the user chose and to GitHub for

@@ -23,6 +23,17 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
+tauri-plugin-global-shortcut = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+thiserror = "2"
+rusqlite = { version = "0.40", features = ["bundled"] }
+os_info = "3"
+
+# Deliberately NOT depending on objc2 or the windows crate. Tauri already
+# implements capture protection natively -- set_content_protected maps to
+# NSWindow.sharingType = .none on macOS and SetWindowDisplayAffinity with
+# WDA_EXCLUDEFROMCAPTURE on Windows, which are exactly the mechanisms measured
+# in tools/macos-capture-harness. Hand-rolling that would add unsafe code for
+# no benefit.
 

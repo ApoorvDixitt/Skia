@@ -28,14 +28,23 @@ and an update replaces the app cleanly.
 
 ## Phase 1 — minimum viable app
 
-- [ ] Overlay window that never steals focus and has no dock, taskbar, menu-bar, or alt-tab presence (P0)
-- [ ] Capture exclusion where the OS supports it, with in-app status that states what is actually active (P0)
-- [ ] Silent, remappable global hotkeys (P0)
-- [ ] Ask mode: hotkey, region capture, OCR, streamed Markdown answer (P0)
+- [x] Overlay window that never steals focus and has no dock, taskbar, or alt-tab presence (P0)
+      — always-on-top, visible on all workspaces, `ActivationPolicy::Accessory` on macOS.
+      Menu-bar/tray item not added yet.
+- [x] Capture exclusion where the OS supports it, with in-app status that states what is
+      actually active (P0) — verified end to end: the running app's overlay is absent from a
+      ScreenCaptureKit capture while remaining enumerable, and the UI renders `documented`
+      (Windows) distinctly from `measured` (macOS) so the weaker case can never read as a promise.
+- [~] Silent, remappable global hotkeys (P0) — silent global hotkey works
+      (⌘⇧Space / Ctrl⇧Space toggles the overlay). **Remapping is not implemented.**
+- [ ] Ask mode: hotkey, region capture, OCR, streamed Markdown answer (P0) — UI shell only, inert
 - [ ] One model provider working end to end, with the key in the OS keychain (P0)
-- [ ] Local SQLite history, searchable, exportable, deletable (P0)
+- [~] Local SQLite history, searchable, exportable, deletable (P0) — storage layer done
+      (WAL, versioned migrations, FTS5 search, export, purge, 14 tests) and the capture-exclusion
+      preference persists through it. **No history UI yet**, and export/purge are backend commands
+      with nothing calling them.
 - [ ] First-run permission flow with plain-language explanations and a re-check button (P0)
-- [ ] GitHub Release with working auto-update (P0)
+- [ ] GitHub Release with working auto-update (P0) — release pipeline proven, updater not wired
 
 **Done when:** a fresh install reaches a working state through a guided flow, Ask mode answers
 end to end, and the app can update itself.
