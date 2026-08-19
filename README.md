@@ -149,7 +149,13 @@ everything native, real-time, or filesystem-touching living in Rust behind Tauri
 | Audio capture | cpal, WASAPI loopback, ScreenCaptureKit / CoreAudio |
 
 One repository builds both platforms from the same commit; per-OS behaviour is handled with
-`#[cfg(target_os = "...")]` rather than separate branches.
+`#[cfg(target_os = "...")]` rather than separate branches. Native macOS APIs are reached from
+Rust via [`objc2`](https://crates.io/crates/objc2) and Windows APIs via the
+[`windows`](https://crates.io/crates/windows) crate — there is no Swift, Objective-C, or C# in
+the application.
+
+The Swift under [`tools/`](tools/macos-capture-harness) is a standalone diagnostic for
+measuring OS behaviour. It is never compiled into the app.
 
 ## Documentation
 

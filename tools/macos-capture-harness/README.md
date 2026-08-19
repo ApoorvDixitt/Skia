@@ -1,5 +1,15 @@
 # macOS capture-exclusion harness
 
+> [!NOTE]
+> **This is a diagnostic tool, not application code.** Skia itself is Rust and TypeScript with
+> no Swift anywhere — the app reaches AppKit through the [`objc2`](https://crates.io/crates/objc2)
+> crate from Rust. Nothing here is referenced by `Cargo.toml`, `tauri.conf.json`, or the Vite
+> config, and none of it is compiled into or shipped with the app.
+>
+> It's written in Swift on purpose: it needs to call AppKit and ScreenCaptureKit directly, and
+> being independent of Skia's own Rust bindings makes it a useful second opinion — if our
+> `objc2` code were wrong, a probe sharing those bindings would be wrong the same way.
+
 Measures whether `NSWindow.sharingType = .none` actually keeps a window out of screen
 captures on the macOS version you're running.
 
