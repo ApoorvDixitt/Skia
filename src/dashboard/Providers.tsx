@@ -20,6 +20,7 @@ import type { FormEvent } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
 import { describeIpcError } from "../lib/stealth";
+import { IconChip, IconCloud, IconScript } from "./icons";
 import {
   deleteApiKey,
   fetchProviderCatalog,
@@ -157,47 +158,58 @@ function ProviderRow({ entry, onMutated }: ProviderRowProps) {
 
   return (
     <li className="pr-row">
-      <div className="pr-head">
-        <span className="pr-name">
-          <span className="pr-label">{entry.label}</span>
-          <span className="db-chip" data-tone={chip.tone}>
-            {chip.label}
-          </span>
-          {entry.needsApiKey ? (
-            <span
-              className="db-chip"
-              data-tone={entry.configured ? "ink" : "faint"}
-            >
-              {entry.configured ? "key saved" : "no key"}
-            </span>
-          ) : null}
+      {/* The compact anatomy: mark, title, one supporting line, control. */}
+      <div className="db-row">
+        <span className="db-row-icon">
+          {entry.isMock ? (
+            <IconScript />
+          ) : entry.isLocal ? (
+            <IconChip />
+          ) : (
+            <IconCloud />
+          )}
         </span>
-        <div className="pr-actions">
+        <div className="db-row-copy">
+          <span className="pr-name">
+            <span className="pr-label">{entry.label}</span>
+            <span className="db-chip" data-tone={chip.tone}>
+              {chip.label}
+            </span>
+            {entry.needsApiKey ? (
+              <span
+                className="db-chip"
+                data-tone={entry.configured ? "ink" : "faint"}
+              >
+                {entry.configured ? "key saved" : "no key"}
+              </span>
+            ) : null}
+          </span>
+          <span className="db-row-sub pr-sub">
+            <span className="pr-sub-note" title={entry.note}>
+              {entry.note}
+            </span>
+            <code
+              className="measured"
+              data-selectable=""
+              title={`Default model — a starting point, not a promise it still exists. Provider id: ${entry.id}.`}
+            >
+              {entry.model.trim().length > 0 ? entry.model : "(unreported)"}
+            </code>
+          </span>
+        </div>
+        <div className="db-row-control">
           <button
             type="button"
             className="db-button"
             disabled={test.kind === "running"}
+            data-busy={test.kind === "running"}
+            aria-busy={test.kind === "running"}
             onClick={runTest}
             title="Sends one small, real request and shows what comes back."
           >
             {test.kind === "running" ? "Testing…" : "Test"}
           </button>
         </div>
-      </div>
-
-      <p className="pr-note">{entry.note}</p>
-
-      <div className="pr-meta">
-        <span className="pr-meta-item">
-          <span className="legend">Default model</span>
-          <code className="measured" data-selectable="">
-            {entry.model.trim().length > 0 ? entry.model : "(unreported)"}
-          </code>
-        </span>
-        <span className="pr-meta-item">
-          <span className="legend">ID</span>
-          <code className="measured">{entry.id}</code>
-        </span>
       </div>
 
       {entry.needsApiKey ? (
@@ -222,6 +234,8 @@ function ProviderRow({ entry, onMutated }: ProviderRowProps) {
                 type="button"
                 className="db-button db-button--danger"
                 disabled={busy}
+                data-busy={op === "deleting"}
+                aria-busy={op === "deleting"}
                 onClick={removeKey}
               >
                 {op === "deleting" ? "Removing…" : "Remove key"}
@@ -251,6 +265,8 @@ function ProviderRow({ entry, onMutated }: ProviderRowProps) {
                 type="submit"
                 className="db-button"
                 disabled={busy || draft.trim().length === 0}
+                data-busy={op === "saving"}
+                aria-busy={op === "saving"}
               >
                 {op === "saving"
                   ? "Saving…"
@@ -307,8 +323,7 @@ function ProviderRow({ entry, onMutated }: ProviderRowProps) {
               <p className="pr-status-text">{keyNote.text}</p>
               {keyNote.tone === "ok" ? (
                 <p className="db-hint">
-                  The list was re-read from the keychain afterwards, so the
-                  badge above reports what is actually stored.
+                  The badge above was re-read from the keychain, not assumed.
                 </p>
               ) : null}
             </div>
@@ -389,8 +404,8 @@ export function Providers() {
         <div className="db-head-copy">
           <h2 className="db-title">Providers</h2>
           <p className="db-subtitle">
-            Which model answers — with your own key, or none at all. Keys live
-            in the OS keychain; Skia can read back only that one exists.
+            Which model answers. A saved key lives in the OS keychain and can
+            never be read back — only seen to exist.
           </p>
         </div>
         <div className="db-head-side">
@@ -431,7 +446,7 @@ export function Providers() {
                 build with no providers configured looks like — not an error.
               </QuietNote>
             ) : (
-              <ul className="pr-list">
+              <ul className="pr-list db-stagger">
                 {catalog.entries.map((entry) => (
                   <ProviderRow
                     key={entry.id}

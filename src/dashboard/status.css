@@ -180,6 +180,7 @@
   background-color: var(--alarm-soft);
   color: var(--alarm);
   font-size: var(--t-sm);
+  animation: db-rise var(--fast) var(--ease) both;
 }
 
 .st-note {
@@ -475,8 +476,28 @@
   opacity: 0.5;
 }
 
+/* Applying: dashed rail plus the same quiet monochrome sweep the buttons
+   use. The busy fact never rides on the motion alone — the label says
+   "applying…", the control is disabled, and aria-busy is set. */
 .st-switch-track[data-busy="true"] {
   border-style: dashed;
+  overflow: hidden;
+}
+
+.st-switch-track[data-busy="true"]::after {
+  content: "";
+  position: absolute;
+  bottom: 1px;
+  left: 0;
+  width: 50%;
+  height: 1.5px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--line-bright),
+    transparent
+  );
+  animation: db-sweep 900ms linear infinite;
 }
 
 .st-switch-label {
@@ -653,6 +674,7 @@
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
   background-color: var(--sunken);
+  animation: db-rise var(--fast) var(--ease) both;
 }
 
 .st-pending-copy {

@@ -38,11 +38,6 @@
   animation: db-rise var(--med) var(--ease) both;
 }
 
-.db-brand-mark {
-  color: var(--paper);
-  flex-shrink: 0;
-}
-
 .db-brand-copy {
   display: flex;
   flex-direction: column;
@@ -55,6 +50,28 @@
   font-weight: 600;
   letter-spacing: var(--track-tight);
   line-height: 1.1;
+}
+
+/* The frame the needle travels in. Positioned so the measured offsets of the
+   items below are relative to it. */
+.db-nav-frame {
+  position: relative;
+}
+
+/* The needle. Amber because it points at something: where you are. One
+   element that slides between items — position set from a real measurement
+   in Dashboard.tsx, height mirrored by NEEDLE_HEIGHT there. */
+.db-needle {
+  position: absolute;
+  z-index: 1; /* over the active item's translucent background */
+  left: 0;
+  top: 0;
+  width: 2px;
+  height: 15px;
+  border-radius: 1px;
+  background-color: var(--amber);
+  animation: db-fade var(--med) var(--ease) both;
+  transition: transform var(--med) var(--ease);
 }
 
 .db-nav {
@@ -78,7 +95,6 @@
 .db-nav > li:nth-child(6) { animation-delay: 180ms; }
 
 .db-nav-item {
-  position: relative;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -108,20 +124,8 @@
   opacity: 1;
 }
 
-/* The needle. Amber because it points at something: where you are. */
-.db-nav-item::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 50%;
-  width: 2px;
-  height: 0;
-  border-radius: 1px;
-  background-color: var(--amber);
-  transform: translateY(-50%);
-  transition: height var(--fast) var(--ease);
-}
-
+/* Selection never depends on the needle's motion: the active item is
+   restyled on its own. */
 .db-nav-item[aria-current="page"] {
   color: var(--paper);
   background-color: var(--raised);
@@ -129,10 +133,6 @@
 
 .db-nav-item[aria-current="page"] .db-icon {
   opacity: 1;
-}
-
-.db-nav-item[aria-current="page"]::before {
-  height: 15px;
 }
 
 .db-rail-foot {
@@ -145,12 +145,14 @@
 
 /* ---------------------------------------------------------- content pane ---- */
 
+/* Remounted on section switch (key={section}), so entering content
+   crossfades in with a few pixels of travel. */
 .db-main {
   display: flex;
   flex-direction: column;
   flex: 1;
   min-width: 0;
-  animation: db-fade var(--med) var(--ease) both;
+  animation: db-rise var(--med) var(--ease) both;
 }
 
 .db-head {
@@ -159,7 +161,7 @@
   justify-content: space-between;
   gap: 16px;
   flex-shrink: 0;
-  padding: 26px 32px 16px;
+  padding: 22px 30px 14px;
   border-bottom: 1px solid var(--line);
 }
 
@@ -197,14 +199,62 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 22px 32px 40px;
+  padding: 18px 30px 36px;
 }
 
 .db-body-inner {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 14px;
   max-width: 860px;
+}
+
+/* ----------------------------------------------------------- compact row ----
+   The settings-row anatomy: a small mark, a title, ONE short supporting
+   line, and the control right-aligned. Longer explanation moves into a
+   `title` tooltip or a MoreNote — never off the record. */
+
+.db-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.db-row-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.db-row-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1;
+  min-width: 0;
+}
+
+.db-row-title {
+  margin: 0;
+  font-size: var(--t-base);
+  font-weight: 600;
+  letter-spacing: var(--track-tight);
+  line-height: 1.3;
+}
+
+.db-row-sub {
+  margin: 0;
+  font-size: var(--t-xs);
+  color: var(--text-muted);
+  min-width: 0;
+}
+
+.db-row-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 /* Engraved micro-heading for a block inside a section. */
@@ -277,6 +327,62 @@
 
 .db-button--danger:hover:not(:disabled) {
   border-color: var(--alarm);
+}
+
+/* A working control: a quiet monochrome scanline along the bottom edge.
+   Decoration only — the busy state is always also carried by the swapped
+   label ("Saving…"), `disabled`, and `aria-busy`, so nothing depends on the
+   motion. Monochrome on purpose: amber stays reserved for position and
+   warning. */
+.db-button[data-busy="true"] {
+  position: relative;
+  overflow: hidden;
+  color: var(--text-muted);
+}
+
+.db-button[data-busy="true"]::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 40%;
+  height: 1.5px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--line-bright),
+    transparent
+  );
+  animation: db-sweep 900ms linear infinite;
+}
+
+/* The same indeterminate motion, standing alone, for a working state whose
+   button is already gone (purge, mid-delete). */
+.db-busybar {
+  position: relative;
+  width: 120px;
+  height: 2px;
+  border-radius: 1px;
+  background-color: var(--line);
+  overflow: hidden;
+}
+
+.db-busybar::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 36%;
+  border-radius: 1px;
+  background-color: var(--line-bright);
+  animation: db-sweep 900ms linear infinite;
+}
+
+.db-working {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
 }
 
 /* --------------------------------------------------------------- inputs ---- */
@@ -357,6 +463,7 @@
   border-radius: var(--r-sm);
   font-size: var(--t-sm);
   color: var(--text-muted);
+  animation: db-rise var(--fast) var(--ease) both;
 }
 
 .db-load {
@@ -366,6 +473,7 @@
   margin: 0;
   font-size: var(--t-sm);
   color: var(--text-muted);
+  animation: db-rise var(--fast) var(--ease) both;
 }
 
 .db-spinner {
@@ -386,6 +494,7 @@
   border: 1px solid var(--alarm-line);
   border-radius: var(--r-sm);
   background-color: var(--alarm-soft);
+  animation: db-rise var(--fast) var(--ease) both;
 }
 
 .db-fail-mark {
@@ -447,6 +556,109 @@
   margin: 0;
   font-size: var(--t-sm);
   color: var(--text-muted);
+  animation: db-rise var(--fast) var(--ease) both;
+}
+
+/* ------------------------------------------------- progressive disclosure ----
+   A quiet fold for long-form elaboration. Honesty invariants, caveats, and
+   directives never live in here — only the longer retelling of a fact that
+   is already stated inline. */
+
+.db-more {
+  font-size: var(--t-xs);
+  color: var(--text-muted);
+}
+
+.db-more-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  list-style: none;
+  cursor: pointer;
+  font-size: var(--t-micro);
+  font-weight: 500;
+  letter-spacing: var(--track-legend);
+  text-transform: uppercase;
+  color: var(--text-faint);
+  transition: color var(--fast) var(--ease);
+}
+
+.db-more-summary::-webkit-details-marker {
+  display: none;
+}
+
+.db-more-summary:hover {
+  color: var(--text-muted);
+}
+
+/* The chevron: points right when folded, down when open. */
+.db-more-summary::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  margin-top: -2px;
+  border-right: 1px solid currentColor;
+  border-bottom: 1px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform var(--fast) var(--ease);
+  flex-shrink: 0;
+}
+
+.db-more[open] > .db-more-summary::before {
+  transform: rotate(45deg);
+  margin-top: -3px;
+}
+
+.db-more-body {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 5px;
+  padding-left: 11px;
+  border-left: 1px solid var(--line);
+  animation: db-rise var(--fast) var(--ease) both;
+}
+
+.db-more-body p {
+  margin: 0;
+}
+
+/* --------------------------------------------------------- list reveal ----
+   A small stagger for rows that arrive together. Capped: the first eight
+   children step in 24ms apart, everything after lands with the eighth, so a
+   long list never ripples for seconds. */
+
+.db-stagger > * {
+  animation: db-rise var(--med) var(--ease) backwards;
+  animation-delay: 168ms;
+}
+
+.db-stagger > :nth-child(1) {
+  animation-delay: 0ms;
+}
+
+.db-stagger > :nth-child(2) {
+  animation-delay: 24ms;
+}
+
+.db-stagger > :nth-child(3) {
+  animation-delay: 48ms;
+}
+
+.db-stagger > :nth-child(4) {
+  animation-delay: 72ms;
+}
+
+.db-stagger > :nth-child(5) {
+  animation-delay: 96ms;
+}
+
+.db-stagger > :nth-child(6) {
+  animation-delay: 120ms;
+}
+
+.db-stagger > :nth-child(7) {
+  animation-delay: 144ms;
 }
 
 /* ---------------------------------------------------------------- misc ---- */
@@ -486,5 +698,27 @@
 @keyframes db-spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+@keyframes db-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(350%);
+  }
+}
+
+/* The global reduced-motion rule in tokens.css zeroes durations but not
+   delays, so a staggered row would otherwise sit at its invisible from-state
+   for the length of its delay before snapping in. Zeroing the delays here
+   keeps every row immediately visible; it complements the global rule rather
+   than re-declaring it. */
+@media (prefers-reduced-motion: reduce) {
+  .db-shell *,
+  .db-shell *::before,
+  .db-shell *::after {
+    animation-delay: 0ms !important;
   }
 }

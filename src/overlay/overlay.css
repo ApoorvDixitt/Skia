@@ -37,24 +37,11 @@
   height: 30px;
 }
 
-/* The mark: a pebble with its shade, drawn rather than loaded. Skia is Greek for
-   shadow, and the whole brand is one shape plus the shape it casts. */
-.mark {
-  position: relative;
-  width: 15px;
-  height: 15px;
-  border-radius: 58% 42% 47% 53% / 52% 55% 45% 48%;
-  background: var(--paper);
-  flex-shrink: 0;
-}
-
-.mark::after {
-  content: "";
-  position: absolute;
-  inset: -3px -6px 4px 6px;
-  border-radius: 60% 40% 50% 50% / 55% 50% 50% 45%;
-  background: var(--taupe);
-  z-index: -1;
+/* The mark is the real asset (src/ui/Mark.tsx). The pebble's mass sits a hair
+   low in its canvas — the shade occupies the top-right — so a half-pixel lift
+   keeps it optically level with the status dot beside it. */
+.brand .mark-img {
+  transform: translateY(-0.5px);
 }
 
 /* ---- the status dot: the compressed capture story ---- */
@@ -65,6 +52,13 @@
   border-radius: var(--r-pill);
   flex-shrink: 0;
   cursor: help;
+  /* A state change swaps the class on this same element; the transition is what
+     makes a toggle register as movement rather than a teleport. */
+  transition:
+    background-color var(--med) var(--ease),
+    border-color var(--med) var(--ease),
+    border-width var(--med) var(--ease),
+    box-shadow var(--med) var(--ease);
 }
 
 /* A vendor-documented guarantee reads as plainly true. */
@@ -164,12 +158,18 @@
   transition:
     border-color var(--fast) var(--ease),
     background-color var(--fast) var(--ease),
-    opacity var(--fast) var(--ease);
+    opacity var(--fast) var(--ease),
+    transform var(--fast) var(--ease);
 }
 
 .btn:hover:not(:disabled) {
   border-color: var(--line-bright);
   background: rgba(251, 249, 245, 0.09);
+}
+
+/* A machined press: half a pixel of travel, no bounce. */
+.btn:active:not(:disabled) {
+  transform: translateY(0.5px);
 }
 
 .btn:disabled {
@@ -219,8 +219,10 @@
   gap: 4px;
 }
 
+/* Labels are shortened in the markup ("Ollama", not "Ollama (local)"), so the
+   picker can give its saved pixels back to the input. */
 .picker {
-  max-width: 132px;
+  max-width: 108px;
   height: 28px;
   font: inherit;
   font-size: var(--t-xs);
@@ -229,6 +231,14 @@
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
   padding: 0 4px;
+  transition:
+    color var(--fast) var(--ease),
+    border-color var(--fast) var(--ease);
+}
+
+.picker:hover {
+  color: var(--text);
+  border-color: var(--line-strong);
 }
 
 .icon {
@@ -242,13 +252,18 @@
   transition:
     color var(--fast) var(--ease),
     background-color var(--fast) var(--ease),
-    border-color var(--fast) var(--ease);
+    border-color var(--fast) var(--ease),
+    transform var(--fast) var(--ease);
 }
 
 .icon:hover:not(:disabled) {
   color: var(--text);
   background: var(--raised);
   border-color: var(--line);
+}
+
+.icon:active:not(:disabled) {
+  transform: translateY(0.5px);
 }
 
 .icon:disabled {
@@ -262,8 +277,22 @@
   color: var(--amber-bright);
 }
 
+/* While set_capture_exclusion is in flight the eye breathes instead of going
+   flat-disabled. Motion is flavour only: with animations neutralised the button
+   still reads busy from the raised opacity, progress cursor and aria-busy. */
+.icon[data-pending="yes"]:disabled {
+  opacity: 0.7;
+  cursor: progress;
+  animation: dot-pulse 1.2s var(--ease) infinite;
+}
+
 /* ----------------------------------------------------------------- panel --- */
 
+/* The panel's entrance may animate opacity and transform ONLY. Its layout
+   height feeds the ResizeObserver in Overlay.tsx that sizes the OS window, so
+   animating height (or margin, or padding) would change the measurement every
+   frame and set the window chasing its own tail. Transform and opacity leave
+   the measured box alone: the window grows once, then the content settles in. */
 .panel {
   border-top: 1px solid var(--line);
   padding: 12px;
@@ -276,7 +305,7 @@
 @keyframes panel-in {
   from {
     opacity: 0;
-    transform: translateY(-4px);
+    transform: translateY(-6px);
   }
 }
 
@@ -329,6 +358,10 @@
   color: var(--text-muted);
 }
 
+.answer-wait {
+  animation: dot-pulse 1.6s var(--ease) infinite;
+}
+
 .answer-error,
 .notice {
   margin: 0;
@@ -347,6 +380,33 @@
   border-radius: var(--r-pill);
   background: var(--amber-bright);
   animation: dot-pulse 1s var(--ease) infinite;
+}
+
+/* The write head. Settled answer text is rendered plainly and never re-animated;
+   this one trailing element carries all the motion, so a delta advances the
+   caret instead of strobing the paragraph. The element persists across renders,
+   so its animation runs uninterrupted while text grows in front of it. */
+.caret {
+  display: inline-block;
+  width: 1.5px;
+  height: 0.95em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  border-radius: 1px;
+  background: var(--amber-bright);
+  /* The soft leading edge: a faint amber halo where new text lands. */
+  box-shadow: 0 0 7px 1px var(--amber-soft);
+  animation: caret-breathe 0.9s var(--ease) infinite;
+}
+
+@keyframes caret-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
 }
 
 /* ---- grounding chips ---- */

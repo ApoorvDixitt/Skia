@@ -1,0 +1,1129 @@
+/* Copyright 2026 Apoorv Dixit
+   SPDX-License-Identifier: Apache-2.0
+
+   First-run setup, on the tokens in src/styles/tokens.css and nothing else.
+   Same three rules as every other Skia surface: warm monochrome with amber
+   only where it signals (the current step tick, the chosen route, a pending
+   request, the one "measured, not guaranteed" fact), monospace for anything
+   the system measured, engraved micro-labels over tight titles.
+
+   The panel is two columns: a working column of copy and controls, and a
+   recessed display window holding one calm plate per step. Motion is
+   mechanical and short — a directional slide between steps, a small staggered
+   rise within one, a marching trace while a request is out. tokens.css
+   neutralises all of it under prefers-reduced-motion. */
+
+/* ---------------------------------------------------------------- shell ---- */
+
+.ob-shell {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(400px, 470px) 1fr;
+  height: 100%;
+  background-color: var(--panel-solid);
+  color: var(--text);
+  overflow: hidden;
+}
+
+.ob-left {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  padding: 22px 30px 24px 34px;
+}
+
+.ob-right {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  padding: 48px;
+  background-color: var(--sunken);
+  border-left: 1px solid var(--line);
+  overflow: hidden;
+}
+
+/* ---------------------------------------------------------------- header ---- */
+
+.ob-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.ob-head-mark {
+  flex-shrink: 0;
+}
+
+.ob-head-name {
+  font-size: var(--t-md);
+  font-weight: 600;
+  letter-spacing: var(--track-tight);
+  line-height: 1;
+}
+
+.ob-head-tag {
+  margin-left: 4px;
+}
+
+/* -------------------------------------------------------------- progress ---- */
+
+.ob-progress {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 22px;
+}
+
+.ob-ticks {
+  display: flex;
+  gap: 5px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.ob-tick {
+  width: 22px;
+  height: 3px;
+  border-radius: var(--r-pill);
+  background-color: var(--line);
+  transition: background-color var(--med) var(--ease);
+}
+
+.ob-tick[data-state="past"] {
+  background-color: var(--line-bright);
+}
+
+/* The needle: where the flow currently points. */
+.ob-tick[data-state="now"] {
+  background-color: var(--amber);
+}
+
+.ob-progress-count {
+  color: var(--text-faint);
+}
+
+/* ------------------------------------------- the step and its transitions ---- */
+
+.ob-step {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 2px 10px 20px 2px;
+}
+
+/* The container takes programmatic focus on step change; a ring on a whole
+   column would read as noise, and every control inside keeps its own. */
+.ob-step:focus,
+.ob-step:focus-visible {
+  outline: none;
+}
+
+.ob-step[data-dir="fwd"] {
+  animation: ob-step-fwd var(--med) var(--ease) both;
+}
+
+.ob-step[data-dir="back"] {
+  animation: ob-step-back var(--med) var(--ease) both;
+}
+
+@keyframes ob-step-fwd {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes ob-step-back {
+  from {
+    opacity: 0;
+    transform: translateX(-16px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Each step's own elements rise in, in order. */
+.ob-step > * {
+  animation: ob-rise var(--med) var(--ease) both;
+}
+
+.ob-step > *:nth-child(1) { animation-delay: 30ms; }
+.ob-step > *:nth-child(2) { animation-delay: 60ms; }
+.ob-step > *:nth-child(3) { animation-delay: 90ms; }
+.ob-step > *:nth-child(4) { animation-delay: 120ms; }
+.ob-step > *:nth-child(5) { animation-delay: 150ms; }
+.ob-step > *:nth-child(6) { animation-delay: 180ms; }
+.ob-step > *:nth-child(n + 7) { animation-delay: 210ms; }
+
+@keyframes ob-rise {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ----------------------------------------------------------------- type ---- */
+
+.ob-title {
+  margin: 0 0 10px;
+  font-size: var(--t-xl);
+  font-weight: 600;
+  letter-spacing: var(--track-tight);
+  line-height: 1.25;
+}
+
+.ob-hello {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 6px 0 14px;
+}
+
+.ob-hello-mark {
+  flex-shrink: 0;
+}
+
+.ob-title--hello {
+  margin: 0;
+  font-size: 1.7rem;
+}
+
+.ob-lede {
+  margin: 0 0 16px;
+  font-size: var(--t-md);
+  color: var(--text-muted);
+  max-width: 46ch;
+}
+
+.ob-hint {
+  margin: 10px 0 0;
+  font-size: var(--t-xs);
+  color: var(--text-faint);
+  max-width: 52ch;
+}
+
+.ob-wait {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 0;
+  font-size: var(--t-sm);
+  color: var(--text-muted);
+}
+
+/* -------------------------------------------------------------- controls ---- */
+
+.ob-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 26px;
+}
+
+.ob-actions--flush {
+  margin-top: 8px;
+}
+
+.ob-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  font-size: var(--t-sm);
+  font-weight: 500;
+  color: var(--paper);
+  border: 1px solid var(--line-bright);
+  border-radius: var(--r-sm);
+  background-color: var(--raised);
+  white-space: nowrap;
+  transition:
+    border-color var(--fast) var(--ease),
+    background-color var(--fast) var(--ease),
+    color var(--fast) var(--ease);
+}
+
+.ob-button:hover:not(:disabled) {
+  border-color: var(--paper);
+}
+
+.ob-button:disabled {
+  color: var(--text-faint);
+  border-color: var(--line);
+  background: none;
+  cursor: not-allowed;
+}
+
+.ob-button--ghost {
+  background: none;
+  border-color: transparent;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.ob-button--ghost:hover:not(:disabled) {
+  border-color: var(--line-strong);
+  color: var(--text);
+}
+
+.ob-button--small {
+  padding: 3px 10px;
+  font-size: var(--t-xs);
+}
+
+.ob-input {
+  font: inherit;
+  font-size: var(--t-base);
+  color: var(--text);
+  background-color: var(--sunken);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  padding: 6px 10px;
+  min-width: 0;
+}
+
+.ob-input::placeholder {
+  color: var(--text-faint);
+}
+
+/* The quiet way out, always present. */
+.ob-skip {
+  position: absolute;
+  top: 16px;
+  right: 20px;
+  z-index: 2;
+  padding: 4px 10px;
+  font-size: var(--t-xs);
+  color: var(--text-faint);
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  transition:
+    color var(--fast) var(--ease),
+    border-color var(--fast) var(--ease);
+}
+
+.ob-skip:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--line-strong);
+}
+
+.ob-skip:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* ---------------------------------------------------- notes and failures ---- */
+
+.ob-note {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 14px;
+  padding: 10px 12px;
+  font-size: var(--t-sm);
+  border: 1px solid var(--line);
+  border-left-width: 3px;
+  border-left-color: var(--line-bright);
+  border-radius: var(--r-sm);
+  background-color: var(--raised);
+}
+
+.ob-note p {
+  margin: 0;
+}
+
+.ob-note[data-tone="alarm"] {
+  border-color: var(--alarm-line);
+  border-left-color: var(--alarm);
+  background-color: var(--alarm-soft);
+}
+
+.ob-note-head {
+  font-weight: 500;
+}
+
+.ob-fail-code {
+  margin: 0;
+}
+
+.ob-fail-code code {
+  display: inline-block;
+  padding: 3px 7px;
+  border: 1px solid var(--alarm-line);
+  border-radius: var(--r-sm);
+  color: var(--alarm);
+  font-family: var(--mono);
+  font-size: var(--t-xs);
+  overflow-wrap: anywhere;
+}
+
+.ob-reply {
+  margin: 0;
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.ob-finish-error {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 14px;
+  padding: 12px 14px;
+  font-size: var(--t-sm);
+  border: 1px solid var(--alarm-line);
+  border-radius: var(--r);
+  background-color: var(--alarm-soft);
+}
+
+.ob-finish-error p {
+  margin: 0;
+}
+
+/* A pending request is a signal state, so the pulse is amber. */
+.ob-pulse {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.ob-pulse span {
+  width: 4px;
+  height: 11px;
+  border-radius: 1px;
+  background-color: var(--amber);
+  animation: ob-pulse 900ms var(--ease) infinite;
+}
+
+.ob-pulse span:nth-child(2) {
+  animation-delay: 150ms;
+}
+
+.ob-pulse span:nth-child(3) {
+  animation-delay: 300ms;
+}
+
+@keyframes ob-pulse {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: scaleY(0.6);
+  }
+  40% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ------------------------------------------------------ the honesty list ---- */
+
+.ob-facts {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+}
+
+.ob-fact {
+  padding: 10px 0 10px 14px;
+  border-left: 2px solid var(--line-strong);
+}
+
+.ob-fact + .ob-fact {
+  border-top: 1px solid var(--line);
+}
+
+/* Measured, not guaranteed — the one amber fact. */
+.ob-fact[data-tone="measured"] {
+  border-left-color: var(--amber);
+}
+
+.ob-fact[data-tone="measured"] .ob-fact-label {
+  color: var(--amber-bright);
+}
+
+.ob-fact[data-tone="absent"] {
+  border-left-style: dashed;
+  border-left-color: var(--line);
+}
+
+.ob-fact-body {
+  margin: 3px 0 0;
+  font-size: var(--t-sm);
+  color: var(--text-muted);
+  max-width: 48ch;
+}
+
+/* ------------------------------------------------------- provider choice ---- */
+
+.ob-routes {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  margin-top: 4px;
+}
+
+.ob-route-title {
+  margin: 0;
+}
+
+.ob-route-sub {
+  margin: 3px 0 8px;
+  font-size: var(--t-xs);
+  color: var(--text-faint);
+}
+
+.ob-choices {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ob-choice {
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background-color: var(--raised);
+  transition:
+    border-color var(--fast) var(--ease),
+    background-color var(--fast) var(--ease);
+}
+
+/* The chosen route: the panel's one amber selection. */
+.ob-choice[data-selected="true"] {
+  border-color: var(--amber-line);
+  background-color: var(--amber-soft);
+}
+
+.ob-choice-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+
+.ob-choice-input {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 15px;
+  height: 15px;
+  margin: 2px 0 0;
+  flex-shrink: 0;
+  border: 1px solid var(--line-bright);
+  border-radius: 50%;
+  background: none;
+  cursor: pointer;
+  transition:
+    border-color var(--fast) var(--ease),
+    background-color var(--fast) var(--ease),
+    box-shadow var(--fast) var(--ease);
+}
+
+.ob-choice-input:checked {
+  border-color: var(--amber);
+  background-color: var(--amber-bright);
+  box-shadow: inset 0 0 0 3px var(--panel-solid);
+}
+
+.ob-choice-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ob-choice-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ob-choice-label {
+  font-size: var(--t-base);
+  font-weight: 500;
+}
+
+.ob-choice-note {
+  font-size: var(--t-xs);
+  color: var(--text-faint);
+}
+
+.ob-chip {
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-legend);
+  text-transform: uppercase;
+  padding: 1px 7px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* Canned output: labelled loudly enough that it cannot pass for a model. */
+.ob-chip[data-tone="amber"] {
+  border-color: var(--amber-line);
+  background-color: var(--amber-soft);
+  color: var(--amber-bright);
+}
+
+.ob-chip[data-tone="faint"] {
+  border-style: dashed;
+  color: var(--text-faint);
+}
+
+.ob-choice-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px 12px 37px;
+  border-top: 1px solid var(--line);
+  animation: ob-rise var(--fast) var(--ease) both;
+}
+
+.ob-choice-detail .ob-hint {
+  margin: 0;
+}
+
+.ob-cmds {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.ob-cmds li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ob-cmds code {
+  color: var(--text);
+  background-color: var(--sunken);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 2px 7px;
+}
+
+.ob-cmd-why {
+  font-size: var(--t-xs);
+  color: var(--text-faint);
+}
+
+.ob-key-saved {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.ob-key-saved .ob-hint {
+  margin: 0;
+}
+
+.ob-key-form {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.ob-key-form .ob-input {
+  flex: 1 1 170px;
+}
+
+.ob-keylink-row {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  flex-wrap: wrap;
+  margin: 0;
+  font-size: var(--t-xs);
+}
+
+.ob-keylink {
+  font-size: var(--t-xs);
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-color: var(--line-bright);
+  transition: color var(--fast) var(--ease);
+}
+
+.ob-keylink:hover {
+  color: var(--paper);
+}
+
+/* -------------------------------------------------------------- test step ---- */
+
+.ob-testee {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background-color: var(--raised);
+}
+
+.ob-testee-name {
+  font-weight: 500;
+}
+
+/* --------------------------------------------------------- documents step ---- */
+
+.ob-kb-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 2px;
+}
+
+.ob-kb-count {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.ob-report {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background-color: var(--sunken);
+}
+
+.ob-report-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+}
+
+.ob-report-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.ob-report-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-left-width: 3px;
+  border-radius: var(--r-sm);
+  background-color: var(--raised);
+}
+
+.ob-report-row[data-outcome="indexed"] {
+  border-left-color: var(--line-bright);
+}
+
+.ob-report-row[data-outcome="unchanged"] {
+  border-left-color: var(--line);
+}
+
+/* Something was dropped and rebuilt — worth noticing, not worth an alarm. */
+.ob-report-row[data-outcome="replaced"] {
+  border-left-color: var(--amber-line);
+}
+
+.ob-report-row[data-outcome="refused"] {
+  border-left-color: var(--alarm);
+  background-color: var(--alarm-soft);
+}
+
+.ob-report-file {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ob-report-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--t-sm);
+}
+
+.ob-report-status {
+  flex-shrink: 0;
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.ob-report-row[data-outcome="indexed"] .ob-report-status {
+  color: var(--paper);
+}
+
+.ob-report-row[data-outcome="unchanged"] .ob-report-status {
+  color: var(--text-faint);
+}
+
+.ob-report-row[data-outcome="replaced"] .ob-report-status {
+  color: var(--amber-bright);
+}
+
+.ob-report-row[data-outcome="refused"] .ob-report-status {
+  color: var(--alarm);
+}
+
+.ob-report .ob-wait {
+  margin: 0;
+}
+
+.ob-done {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 22px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background-color: var(--raised);
+}
+
+.ob-done .ob-hint {
+  margin: 0;
+}
+
+.ob-done-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 0;
+  font-size: var(--t-md);
+}
+
+.ob-keys {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.ob-key {
+  min-width: 26px;
+  padding: 3px 8px;
+  text-align: center;
+  line-height: 1.2;
+  font-family: var(--mono);
+  font-size: var(--t-xs);
+  color: var(--text);
+  background-color: var(--sunken);
+  border: 1px solid var(--line-strong);
+  border-bottom-width: 2px;
+  border-radius: var(--r-sm);
+}
+
+/* -------------------------------------------------------- the art column ---- */
+
+.ob-art {
+  width: 100%;
+  max-width: 440px;
+}
+
+.ob-art[data-dir="fwd"] {
+  animation: ob-art-fwd var(--med) var(--ease) both;
+}
+
+.ob-art[data-dir="back"] {
+  animation: ob-art-back var(--med) var(--ease) both;
+}
+
+@keyframes ob-art-fwd {
+  from {
+    opacity: 0;
+    transform: translateX(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes ob-art-back {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.ob-art-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.ob-art-welcome {
+  position: relative;
+  max-width: 360px;
+  margin: 0 auto;
+}
+
+.ob-art-welcome-mark {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* engraving weights */
+.ob-art-line {
+  stroke: var(--line);
+  fill: none;
+  stroke-width: 1;
+}
+
+.ob-art-line-strong {
+  stroke: var(--line-strong);
+  fill: none;
+  stroke-width: 1;
+}
+
+.ob-art-grid {
+  stroke: var(--line);
+  fill: none;
+  stroke-width: 0.5;
+}
+
+.ob-art-text {
+  fill: var(--text-faint);
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+}
+
+.ob-art-text--hit {
+  fill: var(--amber-bright);
+}
+
+.ob-art-boundary {
+  stroke: var(--line-strong);
+  stroke-dasharray: 5 5;
+  fill: none;
+  stroke-width: 1;
+}
+
+.ob-art-node {
+  stroke: var(--line-bright);
+  fill: var(--raised);
+  stroke-width: 1;
+  transition: stroke var(--med) var(--ease);
+}
+
+.ob-art-node--dashed {
+  stroke-dasharray: 4 3;
+}
+
+.ob-art-node[data-tone="on"] {
+  stroke: var(--amber);
+}
+
+.ob-art-text[data-tone="on"] {
+  fill: var(--amber-bright);
+}
+
+.ob-art-hub {
+  fill: var(--line-bright);
+  stroke: none;
+}
+
+.ob-art-route {
+  stroke: var(--line-strong);
+  fill: none;
+  stroke-width: 1.25;
+  transition: stroke var(--med) var(--ease);
+}
+
+/* The chosen route is the plate's only amber. */
+.ob-art-route[data-tone="on"] {
+  stroke: var(--amber);
+}
+
+.ob-art-key {
+  stroke: var(--line-bright);
+  fill: none;
+  stroke-width: 1.25;
+  transition: stroke var(--med) var(--ease);
+}
+
+.ob-art-key[data-tone="on"] {
+  stroke: var(--amber-bright);
+}
+
+.ob-art-doc {
+  stroke: var(--line-strong);
+  fill: var(--raised);
+  stroke-width: 1;
+}
+
+.ob-art-arrow {
+  fill: var(--line-bright);
+  stroke: none;
+}
+
+.ob-art-cell {
+  stroke: var(--line);
+  fill: none;
+  stroke-width: 1;
+}
+
+.ob-art-cell[data-fill="yes"] {
+  stroke: var(--line-strong);
+  fill: var(--raised);
+}
+
+/* One keyword hit — which is all retrieval is, for now. */
+.ob-art-cell[data-fill="hit"] {
+  stroke: var(--amber);
+  fill: var(--amber-soft);
+}
+
+/* the scope trace draws what the test is actually doing */
+.ob-scope-trace {
+  stroke: var(--line-strong);
+  fill: none;
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  transition: stroke var(--med) var(--ease);
+}
+
+.ob-scope-trace[data-phase="running"] {
+  stroke: var(--amber);
+  stroke-dasharray: 6 5;
+  animation: ob-march 700ms linear infinite;
+}
+
+.ob-scope-trace[data-phase="replied"] {
+  stroke: var(--paper);
+  stroke-opacity: 0.75;
+}
+
+.ob-scope-trace[data-phase="failed"] {
+  stroke: var(--alarm);
+}
+
+@keyframes ob-march {
+  to {
+    stroke-dashoffset: -22;
+  }
+}
+
+/* the honesty spec plate */
+.ob-spec {
+  max-width: 400px;
+  margin: 0 auto;
+  padding: 18px 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background-color: var(--panel-solid);
+}
+
+.ob-spec-head {
+  margin: 0 0 6px;
+}
+
+.ob-spec-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.ob-spec-row {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 0;
+}
+
+.ob-spec-row + .ob-spec-row {
+  border-top: 1px solid var(--line);
+}
+
+.ob-spec-mark {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.ob-spec-row[data-state="holds"] .ob-spec-mark {
+  background-color: var(--line-bright);
+}
+
+/* Measured, not guaranteed: the plate's one amber mark. */
+.ob-spec-row[data-state="measured"] .ob-spec-mark {
+  background-color: var(--amber);
+}
+
+.ob-spec-row[data-state="measured"] .ob-spec-value {
+  color: var(--amber-bright);
+}
+
+.ob-spec-row[data-state="limit"] .ob-spec-mark {
+  border: 1px solid var(--line-bright);
+}
+
+.ob-spec-row[data-state="absent"] .ob-spec-mark {
+  border: 1px dashed var(--line-strong);
+}
+
+.ob-spec-value {
+  text-align: right;
+}
+
+/* ---------------------------------------------------------- accessibility ---- */
+
+.ob-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}

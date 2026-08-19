@@ -44,14 +44,16 @@ export function Answer({
 
       {canned && (
         <p className="answer-warn">
-          This is Skia&apos;s fixed test script, not a model&apos;s reply to your
-          question.
+          Skia&apos;s fixed test script — not a model&apos;s reply.
         </p>
       )}
 
-      {answer.length > 0 ? (
+      {answer.length > 0 || streaming ? (
         <p className="answer-body" data-selectable>
           {answer}
+          {/* Settled text renders plainly; only this trailing element animates,
+              so a new delta never re-triggers motion on what is already read. */}
+          {streaming && <span className="caret" aria-hidden="true" />}
         </p>
       ) : (
         state.kind === "starting" && <p className="answer-wait">Working…</p>
@@ -74,8 +76,8 @@ function Grounding({ sources }: { sources: AskSources | null }) {
   if (!sources.searched) {
     return (
       <p className="grounding grounding--skipped">
-        <span className="legend">Not looked up</span> — this did not look like a
-        question your documents would answer, so they were not searched.
+        <span className="legend">Not looked up</span> — this didn&apos;t look
+        like a documents question, so none were searched.
       </p>
     );
   }
@@ -83,9 +85,8 @@ function Grounding({ sources }: { sources: AskSources | null }) {
   if (sources.sources.length === 0) {
     return (
       <p className="grounding grounding--empty">
-        <span className="legend">Nothing found</span> — your documents were
-        searched by keyword and matched nothing, so this answer is not grounded in
-        them.
+        <span className="legend">Nothing found</span> — a keyword search of your
+        documents matched nothing; this answer is not grounded in them.
       </p>
     );
   }

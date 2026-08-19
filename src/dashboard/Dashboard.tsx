@@ -12,9 +12,10 @@
  * last time; after a purge or an ingest, what you see is what was read.
  */
 
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import type { ReactElement } from "react";
 
+import { Mark } from "../ui/Mark";
 import { HistorySection } from "./HistorySection";
 import { KnowledgeBase } from "./KnowledgeBase";
 import { Prompts } from "./Prompts";
@@ -22,7 +23,6 @@ import { Providers } from "./Providers";
 import { Status } from "./Status";
 import { YourData } from "./YourData";
 import {
-  BrandMark,
   IconData,
   IconHistory,
   IconKnowledge,
@@ -55,37 +55,84 @@ const SECTIONS: readonly SectionDef[] = [
   { id: "data", label: "Your data", icon: <IconData /> },
 ];
 
+/** The needle's height in px. Kept in sync with `.db-needle` in dashboard.css. */
+const NEEDLE_HEIGHT = 15;
+
 export function Dashboard() {
   const [section, setSection] = useState<SectionId>("knowledge");
+
+  // The amber needle is one element that travels between items rather than a
+  // per-item marker that hard-cuts. Its position is measured from the real
+  // layout — never derived from index arithmetic — so it cannot drift from
+  // what is actually on screen. Selection itself never depends on the needle:
+  // `aria-current` still restyles the active item.
+  const [needleTop, setNeedleTop] = useState<number | null>(null);
+  const frameRef = useRef<HTMLDivElement | null>(null);
+  const itemRefs = useRef(new Map<SectionId, HTMLButtonElement>());
+
+  useLayoutEffect(() => {
+    const measure = (): void => {
+      const item = itemRefs.current.get(section);
+      if (item === undefined) return;
+      setNeedleTop(item.offsetTop + (item.offsetHeight - NEEDLE_HEIGHT) / 2);
+    };
+    measure();
+    // Re-measure if the rail relayouts (OS font size, window scaling).
+    const frame = frameRef.current;
+    if (frame === null) return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(frame);
+    return () => {
+      observer.disconnect();
+    };
+  }, [section]);
 
   return (
     <div className="db-shell grain">
       <nav className="db-rail" aria-label="Skia sections">
         <div className="db-brand">
-          <BrandMark />
+          <Mark size={22} />
           <div className="db-brand-copy">
             <span className="db-brand-name">Skia</span>
             <span className="legend">Dashboard</span>
           </div>
         </div>
 
-        <ul className="db-nav">
-          {SECTIONS.map((entry) => (
-            <li key={entry.id}>
-              <button
-                type="button"
-                className="db-nav-item"
-                aria-current={entry.id === section ? "page" : undefined}
-                onClick={() => {
-                  setSection(entry.id);
-                }}
-              >
-                {entry.icon}
-                <span>{entry.label}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
+        <div className="db-nav-frame" ref={frameRef}>
+          {/* Mounted only once measured, so first paint lands in place
+              instead of sliding in from nowhere. */}
+          {needleTop === null ? null : (
+            <span
+              className="db-needle"
+              style={{ transform: `translateY(${String(needleTop)}px)` }}
+              aria-hidden="true"
+            />
+          )}
+          <ul className="db-nav">
+            {SECTIONS.map((entry) => (
+              <li key={entry.id}>
+                <button
+                  type="button"
+                  className="db-nav-item"
+                  aria-current={entry.id === section ? "page" : undefined}
+                  ref={(node) => {
+                    if (node === null) {
+                      itemRefs.current.delete(entry.id);
+                    } else {
+                      itemRefs.current.set(entry.id, node);
+                    }
+                  }}
+                  onClick={() => {
+                    setSection(entry.id);
+                  }}
+                >
+                  {entry.icon}
+                  <span>{entry.label}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
 
         <p className="db-rail-foot legend">On-device · No telemetry</p>
       </nav>

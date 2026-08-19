@@ -45,11 +45,10 @@ function EnumerationNote({ enumerable }: EnumerationNoteProps) {
       </h3>
       {enumerable ? (
         <p className="st-limitation-text">
-          Any app that asks the operating system can still see that this window
-          exists, which process owns it, and its size and position. That is
-          true on every OS, whatever the tier above says. Capture exclusion
-          withholds what the window is showing — never the fact that it is
-          there.
+          Any app that asks the OS can still see that this window exists,
+          which process owns it, and its size and position — on every OS,
+          whatever the tier above says. Capture exclusion withholds what the
+          window shows, never that it is there.
         </p>
       ) : (
         <p className="st-limitation-text">
@@ -99,8 +98,8 @@ export function Status() {
         <div className="db-head-copy">
           <h2 className="db-title">Stealth status</h2>
           <p className="db-subtitle">
-            What is actually active for this window on this machine — not what
-            we would like to promise.
+            What is actually active for this window — not what we would like
+            to promise.
           </p>
         </div>
         <div className="db-head-side">
@@ -164,7 +163,7 @@ export function Status() {
                   retryLabel="Re-check"
                 />
               )}
-              <div className="st-tiers">
+              <div className="st-tiers db-stagger">
                 <CaptureTier
                   exclusion={state.status.captureExclusion}
                   pending={pending}

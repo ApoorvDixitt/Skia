@@ -8,12 +8,22 @@ import { useAsk } from "../lib/useAsk";
 import { useStealthStatus } from "../lib/useStealthStatus";
 import { parseAskSources, type AskSources } from "../lib/sources";
 import { hideOverlay, openDashboard, resizeOverlay } from "../lib/windows";
+import { Mark } from "../ui/Mark";
 import { Answer } from "./Answer";
 import { StatusDot } from "./StatusDot";
 import "./overlay.css";
 
 /** Matches the collapsed height in tauri.conf.json. */
 const BAR_HEIGHT = 58;
+
+/**
+ * "Ollama (local)" → "Ollama". The bar is 680px wide and the parenthetical is
+ * detail, not identity, so it moves to the picker's `title` (which always shows
+ * the full label) rather than costing row pixels.
+ */
+function shortProviderLabel(label: string): string {
+  return label.replace(/\s*\([^)]*\)\s*$/, "");
+}
 
 /**
  * The compact always-on-top bar that sits over a call.
@@ -144,7 +154,7 @@ export function Overlay() {
           stop responding to clicks. */}
       <div className="bar" data-tauri-drag-region>
         <div className="brand" data-tauri-drag-region>
-          <span className="mark" aria-hidden="true" />
+          <Mark size={15} />
           <StatusDot state={stealth.state} />
         </div>
 
@@ -189,7 +199,7 @@ export function Overlay() {
             >
               {providers.providers.map((p) => (
                 <option key={p.id} value={p.id} disabled={!p.configured}>
-                  {p.label}
+                  {shortProviderLabel(p.label)}
                   {p.configured ? "" : " · no key"}
                 </option>
               ))}
@@ -200,6 +210,8 @@ export function Overlay() {
             type="button"
             className="icon"
             data-on={captureOn ? "yes" : "no"}
+            data-pending={stealth.pending ? "yes" : "no"}
+            aria-busy={stealth.pending}
             onClick={() => stealth.setCaptureExclusion(!captureOn)}
             disabled={stealth.pending || stealth.state.kind !== "ready"}
             title={
@@ -251,7 +263,7 @@ export function Overlay() {
           {[
             stealth.actionError && `Capture toggle failed: ${stealth.actionError}`,
             ask.cancelError &&
-              `Stop did not go through: ${ask.cancelError}. The answer may still be running.`,
+              `Stop failed: ${ask.cancelError} — the answer may still be running.`,
             ask.transportError,
             ask.protocolError,
             listenError,

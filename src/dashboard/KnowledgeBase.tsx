@@ -13,7 +13,9 @@
  *   refusal read like a transient failure.
  * - Retrieval is keyword-only, so a question about "money back" will miss a
  *   document that only ever says "refund". Stated here, where documents are
- *   added, because it changes what is worth adding.
+ *   added, because it changes what is worth adding. Both limitations stay
+ *   inline as one tight line each; only their longer telling sits in a
+ *   `title`.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -77,7 +79,7 @@ function outcomeNote(outcome: IngestOutcome): string {
   if (outcome.status === "unchanged") {
     return "The index already matches this file, so nothing was written.";
   }
-  return "This path was indexed before. The previous chunks were dropped and rebuilt from the file as it is now.";
+  return "Indexed before — the old chunks were dropped and rebuilt from the file as it is now.";
 }
 
 interface ReportRowProps {
@@ -108,8 +110,7 @@ function ReportRow({ report }: ReportRowProps) {
             <code data-selectable="">{report.message}</code>
           </p>
           <p className="kb-report-note">
-            If this is a PDF or DOCX: those formats are not supported yet, so
-            the file was refused rather than half-read.
+            PDF or DOCX? Not supported yet — refused rather than half-read.
           </p>
         </>
       )}
@@ -358,8 +359,7 @@ export function KnowledgeBase() {
         <div className="db-head-copy">
           <h2 className="db-title">Knowledge base</h2>
           <p className="db-subtitle">
-            The documents answers can be grounded in — indexed, stored, and
-            searched on this device.
+            The documents answers cite — indexed and searched on this device.
           </p>
         </div>
         <div className="db-head-side">
@@ -375,6 +375,8 @@ export function KnowledgeBase() {
             type="button"
             className="db-button"
             disabled={busy}
+            data-busy={busy}
+            aria-busy={busy}
             onClick={pickFiles}
           >
             {phase === "picking"
@@ -388,14 +390,26 @@ export function KnowledgeBase() {
 
       <div className="db-body">
         <div className="db-body-inner">
-          <p className="kb-formats">
-            Accepts plain text and Markdown (<code className="measured">.txt</code>,{" "}
-            <code className="measured">.md</code>,{" "}
-            <code className="measured">.markdown</code>). PDF and DOCX are not
-            supported yet — the backend refuses them rather than pretending to
-            read them. Retrieval is keyword-only for now: a question about
-            “money back” will miss a document that only says “refund”.
-          </p>
+          {/* Two limitations, one tight line each — inline because they must
+              be unmissable. The `title`s only retell them at length. */}
+          <div className="kb-limits">
+            <p
+              className="kb-limit"
+              title="PDF and DOCX are not supported yet. The backend refuses them outright rather than pretending to read them."
+            >
+              Accepts <code className="measured">.txt</code>,{" "}
+              <code className="measured">.md</code>,{" "}
+              <code className="measured">.markdown</code> — PDF and DOCX are
+              refused, not half-read.
+            </p>
+            <p
+              className="kb-limit"
+              title="Retrieval is keyword-only for now. It matches words, not meaning, which changes what is worth adding."
+            >
+              Retrieval is keyword-only: “money back” will miss a document
+              that only says “refund”.
+            </p>
+          </div>
 
           {pickError === null ? null : (
             <FailNote headline="The file dialog failed" message={pickError} />
@@ -471,7 +485,11 @@ export function KnowledgeBase() {
                 answers can start citing them.
               </QuietNote>
             ) : (
-              <div className="kb-table" role="table" aria-label="Indexed documents">
+              <div
+                className="kb-table db-stagger"
+                role="table"
+                aria-label="Indexed documents"
+              >
                 <div className="kb-row kb-row--head" role="row">
                   <span role="columnheader" className="legend">
                     Document

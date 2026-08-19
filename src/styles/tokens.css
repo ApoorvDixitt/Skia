@@ -167,6 +167,13 @@ button {
   border-radius: 3px;
 }
 
+/* The dashboard window before its first paint. Solid, not transparent: only the
+   overlay is a floating panel. */
+.surface-wait {
+  height: 100%;
+  background: var(--panel-solid);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
