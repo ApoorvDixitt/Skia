@@ -13,9 +13,11 @@ Priorities are **P0** (needed for a first usable release), **P1** (soon after), 
 Two unknowns could change the design or the way features are described, so they get answered
 before anything is built on top of them.
 
-- [ ] Screen-capture test harness on current macOS — establish exactly what leaks, across which
-      capture paths, when the window-exclusion flag is ignored. The result determines how the
-      overlay's behaviour is presented in-app.
+- [x] Screen-capture test harness on current macOS — **done**, see
+      [`tools/macos-capture-harness`](../tools/macos-capture-harness). Measured on macOS 26.5:
+      `.none` excludes overlay pixels from ScreenCaptureKit, legacy CoreGraphics, and
+      full-screen shares in Meet and Zoom. Undocumented and unguaranteed, so re-run per
+      macOS release. Pixel exclusion does **not** hide the window from enumeration.
 - [ ] Audio device hot-swap proof of concept — switch output mid-capture and confirm streams
       rebuild instead of crashing.
 - [ ] Unsigned in-place update test — confirm an ad-hoc-signed app survives being replaced by

@@ -130,9 +130,15 @@ update checks. API keys live in the OS keychain, never in config files or logs.
 Two questions are load-bearing enough to answer before building on top of them, and both are
 Phase 0 work:
 
-1. **What exactly leaks on current macOS?** The capture-exclusion flag is ignored on macOS 15+,
-   but the precise behaviour across capture paths needs a test harness rather than an
-   assumption. The answer may change how the feature is presented.
+1. ~~**What exactly leaks on current macOS?**~~ **Measured on macOS 26.5** — see the
+   [harness](../tools/macos-capture-harness). `sharingType = .none` *is* honoured by
+   ScreenCaptureKit, by legacy CoreGraphics capture, and by full-screen shares in Google Meet
+   and Zoom. But it is undocumented, Apple's own docs advise against relying on it, and there
+   is an open Apple bug where exclusion breaks after a capture filter is rebuilt — so it is a
+   bonus, not a guarantee, and the harness must be re-run each macOS release.
+   **Still open:** exclusion covers *pixels only*. The window remains enumerable via
+   `SCShareableContent` and `CGWindowListCopyWindowInfo`, which expose its owner process,
+   geometry, and `sharingState`. There is no public way to hide a window's existence.
 2. **Does the unsigned in-place update survive?** Ad-hoc signatures are fragile, and a botched
    in-place replacement produces a macOS "app is damaged" error. This needs testing on current
    macOS before anyone relies on auto-update.

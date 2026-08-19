@@ -1,0 +1,9 @@
+# Compiled harness binaries — build locally with swiftc, don't commit
+tcc-preflight
+capture-probe
+hold-short
+hold-long
+*.dSYM/
+
+# Capture output produced by running the probe
+*.png

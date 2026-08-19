@@ -50,26 +50,48 @@ for updates.
 
 ## What "quiet" actually means
 
-Skia stays out of your way, but that means different things on different operating systems.
-Rather than ship a switch that implies a guarantee the OS doesn't give us, here is the real
-picture:
+Skia stays out of your way, but that means different things on different operating systems,
+and the guarantees are narrower than "invisible". Here is the real picture:
 
-| | Windows 10 2004+ / 11 | macOS ≤ 14 | macOS 15+ |
-|---|:---:|:---:|:---:|
-| Hidden from screen capture and sharing | ✅ | ✅ | ❌ |
-| No dock, taskbar, menu-bar, or alt-tab presence | ✅ | ✅ | ✅ |
-| No bot joins the call | ✅ | ✅ | ✅ |
-| Silent, remappable hotkeys | ✅ | ✅ | ✅ |
-| Never steals focus | ✅ | ✅ | ✅ |
+| | Windows 10 2004+ / 11 | macOS |
+|---|:---:|:---:|
+| Overlay pixels excluded from screen capture and sharing | ✅ documented | ⚠️ measured, undocumented |
+| No dock, taskbar, menu-bar, or alt-tab presence | ✅ | ✅ |
+| No bot joins the call | ✅ | ✅ |
+| Silent, remappable hotkeys | ✅ | ✅ |
+| Never steals focus | ✅ | ✅ |
+| Window hidden from *enumeration* by other apps | ❌ | ❌ |
 
-On **macOS 15 and later**, modern screen-capture APIs ignore the window-exclusion flag, so
-the overlay *will* show up in a screen share or recording. The app says so directly instead
-of pretending otherwise. Pinning down the exact behaviour on current macOS is
-[open work](https://github.com/ApoorvDixitt/Skia/issues/3), not a settled question.
+**On Windows** this rests on `WDA_EXCLUDEFROMCAPTURE`, which is documented and supported.
 
-And to be explicit: none of this defends against device management, kernel-level monitoring,
-or someone pointing a second camera at your screen. No user-space app can, and Skia doesn't
-claim to.
+**On macOS** it rests on `NSWindow.sharingType = .none`, and the situation is genuinely murky.
+Apple's shipping SDK header says `.none` means the content cannot be captured; Apple's
+[current documentation](https://developer.apple.com/documentation/appkit/nswindow/sharingtype-swift.enum/none)
+calls it *"A legacy constant that macOS no longer uses"* and says *"Don't use this value to
+hide or omit content from being captured."* An Apple engineer stated in
+[July 2025](https://developer.apple.com/forums/thread/792152) that *"there are no public APIs
+for preventing screen capture."*
+
+We measured it rather than guessing. On **macOS 26.5**, `.none` **was** excluded from
+ScreenCaptureKit, from legacy CoreGraphics capture, and from full-screen shares in Google Meet
+and Zoom — verified from a second device, and holding across switching displays, windows, and
+tabs. So it works today. But there is no contract, Apple has an open bug where the exclusion
+[breaks after a capture filter is rebuilt](https://developer.apple.com/forums/thread/808016),
+and a point release could change it without notice. Treat it as a bonus, never a guarantee.
+The [harness](tools/macos-capture-harness) re-measures it on any macOS version.
+
+### Pixels are not presence
+
+This distinction matters more than the table:
+
+- **Excluded** — the overlay's *pixels* are withheld from a capture stream.
+- **Not excluded** — the window's *existence*. Any app that asks the OS can still see the
+  window, its owning process, its size and position, and the fact that its sharing state is
+  set to `.none`. That value is unusual enough to be a signal in itself.
+
+So Skia can keep its contents out of a screen share. It cannot make itself undiscoverable, and
+it does not defend against device management, kernel-level monitoring, or someone pointing a
+second camera at your screen. No user-space app can, and Skia doesn't claim to.
 
 ## Intended use
 
