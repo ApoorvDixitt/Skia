@@ -1,16 +1,34 @@
 // Copyright 2026 Apoorv Dixit
 // SPDX-License-Identifier: Apache-2.0
 
+mod catalog;
 mod stealth;
+
+pub mod prompts;
+pub mod providers;
+pub mod rag;
+pub mod secrets;
 pub mod storage;
 
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
-use tauri::{Manager, WebviewWindow};
+use futures_util::StreamExt;
+use serde::Serialize;
+use tauri::{Emitter, Manager, WebviewWindow};
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
+use catalog::{Hosting, CATALOG};
+use prompts::{Length, Mode, Profile, PromptBundle, PromptVars, Tone};
+use providers::{
+    CancellationToken, ChatMessage, ChatRequest, MockProvider, OpenAiCompatible, OpenAiConfig,
+    Provider,
+};
+use rag::KnowledgeBase;
+use secrets::SecretStore;
 use stealth::StealthStatus;
-use storage::Store;
+use storage::{Message, Session, Store};
 
 /// The default overlay hotkey. Silent by design: registering a global shortcut
 /// produces no sound, banner, or notification on either platform.
@@ -20,39 +38,55 @@ const DEFAULT_TOGGLE_SHORTCUT: &str = if cfg!(target_os = "macos") {
     "ctrl+shift+space"
 };
 
-/// Settings key for the user's capture-exclusion preference.
 const KEY_CAPTURE_EXCLUSION: &str = "stealth.capture_exclusion_requested";
+const KEYCHAIN_SERVICE: &str = "dev.skia.apikeys";
+/// How many knowledge-base chunks to put in front of the model.
+const RETRIEVAL_LIMIT: u32 = 6;
 
-/// `rusqlite::Connection` is not `Sync`, so the store is behind a mutex.
+/// Shared application state. `rusqlite::Connection` is not `Sync`, so both
+/// databases sit behind mutexes.
 struct AppState {
     store: Mutex<Store>,
+    kb: Mutex<KnowledgeBase>,
+    secrets: SecretStore,
+    prompts: Mutex<PromptBundle>,
+    /// In-flight generations, so barge-in can cancel one mid-stream.
+    inflight: Mutex<HashMap<String, CancellationToken>>,
+    next_request: AtomicU64,
 }
 
 impl AppState {
-    /// Runs `f` against the store. A poisoned lock means another thread panicked
-    /// mid-operation; the connection itself is still usable, and refusing to
-    /// read the user's own data would be worse than continuing.
     fn with_store<T>(
         &self,
         f: impl FnOnce(&Store) -> Result<T, storage::StoreError>,
     ) -> Result<T, String> {
         let guard = match self.store.lock() {
-            Ok(guard) => guard,
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        f(&guard).map_err(|e| e.to_string())
+    }
+
+    fn with_kb<T>(
+        &self,
+        f: impl FnOnce(&KnowledgeBase) -> Result<T, rag::RagError>,
+    ) -> Result<T, String> {
+        let guard = match self.kb.lock() {
+            Ok(g) => g,
             Err(poisoned) => poisoned.into_inner(),
         };
         f(&guard).map_err(|e| e.to_string())
     }
 }
 
-/// Reads the persisted preference. Defaults to enabled, since an invisible
-/// overlay is the point — but the UI is responsible for stating how far that
-/// can actually be trusted on the current platform.
 fn read_capture_preference(store: &Store) -> Result<bool, storage::StoreError> {
     Ok(store
         .get_setting(KEY_CAPTURE_EXCLUSION)?
         .map(|v| v == "true")
         .unwrap_or(true))
 }
+
+// ---------------------------------------------------------------- stealth ----
 
 #[tauri::command]
 fn stealth_status(
@@ -78,21 +112,422 @@ fn set_capture_exclusion(
     stealth::apply(&window, enabled).map_err(|e| e.to_string())
 }
 
-/// Exports everything on device as JSON. Required by the privacy commitment in
-/// the PRD: the user can always take their data out.
+// -------------------------------------------------------------- providers ----
+
+/// What the UI is allowed to know about a provider. Deliberately never carries
+/// the key itself — only whether one exists.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProviderInfo {
+    id: String,
+    label: String,
+    configured: bool,
+    is_mock: bool,
+    is_local: bool,
+    needs_api_key: bool,
+    model: String,
+    note: String,
+    api_key_url: Option<String>,
+}
+
+#[tauri::command]
+fn providers_list(state: tauri::State<'_, AppState>) -> Result<Vec<ProviderInfo>, String> {
+    let mut out = Vec::with_capacity(CATALOG.len());
+    for entry in CATALOG {
+        // A local or mock provider needs no key, so it is always usable. For a
+        // cloud provider, ask the keychain — and let a keychain failure surface
+        // rather than reporting "not configured", which would be a different
+        // and misleading problem.
+        let configured = if entry.needs_api_key() {
+            state
+                .secrets
+                .has_api_key(entry.id)
+                .map_err(|e| format!("could not read the keychain for {}: {e}", entry.id))?
+        } else {
+            true
+        };
+        out.push(ProviderInfo {
+            id: entry.id.to_string(),
+            label: entry.label.to_string(),
+            configured,
+            is_mock: entry.hosting == Hosting::Mock,
+            is_local: entry.hosting == Hosting::Local,
+            needs_api_key: entry.needs_api_key(),
+            model: entry.default_model.to_string(),
+            note: entry.note.to_string(),
+            api_key_url: entry.api_key_url.map(str::to_string),
+        });
+    }
+    Ok(out)
+}
+
+/// The per-role fallback order: which providers Skia would reach for when it
+/// needs a fast live answer, careful reasoning, or vision. Exposed so a settings
+/// screen can show routing rather than keeping a second list that drifts.
+#[tauri::command]
+fn role_defaults() -> HashMap<String, Vec<String>> {
+    providers::ProviderRole::ALL
+        .iter()
+        .map(|role| {
+            (
+                role.alias().to_string(),
+                catalog::defaults_for_role(*role)
+                    .into_iter()
+                    .map(str::to_string)
+                    .collect(),
+            )
+        })
+        .collect()
+}
+
+#[tauri::command]
+fn set_api_key(
+    provider_id: String,
+    key: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let entry =
+        catalog::entry(&provider_id).ok_or_else(|| format!("unknown provider: {provider_id}"))?;
+    if !entry.needs_api_key() {
+        return Err(format!("{} does not take an API key", entry.label));
+    }
+    state
+        .secrets
+        .set_api_key(&provider_id, &key)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn delete_api_key(provider_id: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
+    state
+        .secrets
+        .delete_api_key(&provider_id)
+        .map_err(|e| e.to_string())
+}
+
+/// Builds a live provider from the catalog plus the keychain.
+fn build_provider(provider_id: &str, secrets: &SecretStore) -> Result<Box<dyn Provider>, String> {
+    let entry =
+        catalog::entry(provider_id).ok_or_else(|| format!("unknown provider: {provider_id}"))?;
+
+    if entry.hosting == Hosting::Mock {
+        return Ok(Box::new(MockProvider::new(entry.id)));
+    }
+
+    let mut config = OpenAiConfig::new(entry.id, entry.base_url, entry.default_model);
+    if entry.needs_api_key() {
+        let key = secrets
+            .get_api_key(provider_id)
+            .map_err(|e| format!("could not read the keychain: {e}"))?
+            .ok_or_else(|| {
+                format!(
+                    "{} has no API key yet. Add one in settings{}.",
+                    entry.label,
+                    entry
+                        .api_key_url
+                        .map(|u| format!(" — get one at {u}"))
+                        .unwrap_or_default()
+                )
+            })?;
+        config = config.with_api_key(providers::ApiKey::new(key));
+    }
+
+    OpenAiCompatible::new(config)
+        .map(|p| Box::new(p) as Box<dyn Provider>)
+        .map_err(|e| e.to_string())
+}
+
+/// Sends the cheapest possible real request so the user can confirm a key works
+/// before relying on it mid-call. Required by the PRD's provider acceptance test.
+#[tauri::command]
+async fn test_provider(
+    provider_id: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    let provider = build_provider(&provider_id, &state.secrets)?;
+    let request = ChatRequest {
+        messages: vec![
+            ChatMessage::system("Reply with the single word: ok"),
+            ChatMessage::user("ping"),
+        ],
+        model: provider.model().to_string(),
+        max_tokens: Some(16),
+        temperature: Some(0.0),
+    };
+    let cancel = CancellationToken::new();
+    let text = providers::collect_text(provider.stream_chat(request, cancel))
+        .await
+        .map_err(|e| e.to_string())?;
+    if text.trim().is_empty() {
+        return Err("the provider connected but returned no content".to_string());
+    }
+    Ok(text)
+}
+
+// ------------------------------------------------------------------- ask ------
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AskDelta {
+    request_id: String,
+    content: String,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AskDone {
+    request_id: String,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AskError {
+    request_id: String,
+    message: String,
+}
+
+/// Builds the grounded prompt for a question: retrieve, then render.
+fn build_messages(state: &AppState, prompt: &str) -> Result<Vec<ChatMessage>, String> {
+    // The gate keeps small talk from paying for a lookup.
+    let kb_context = if rag::needs_retrieval(prompt) {
+        let chunks = state.with_kb(|kb| kb.retrieve(prompt, RETRIEVAL_LIMIT))?;
+        let mut buf = String::new();
+        for c in &chunks {
+            buf.push_str(&format!(
+                "[{}{}]\n{}\n\n",
+                c.path,
+                c.section
+                    .as_deref()
+                    .map(|s| format!(" — {s}"))
+                    .unwrap_or_default(),
+                c.text
+            ));
+        }
+        buf
+    } else {
+        String::new()
+    };
+
+    let bundle = match state.prompts.lock() {
+        Ok(g) => g,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    // Empty string, never None: "looked and found nothing" is a value the
+    // shipped prompts know how to talk about, whereas None is a missing slot
+    // and would fail to render.
+    let vars = PromptVars {
+        kb_context: Some(&kb_context),
+        transcript: None,
+        question: Some(prompt),
+        profile: Profile::General,
+    };
+    let system = bundle
+        .render(Mode::Ask, &vars, Tone::Neutral, Length::Normal)
+        .map_err(|e| e.to_string())?;
+
+    Ok(vec![ChatMessage::system(system), ChatMessage::user(prompt)])
+}
+
+#[tauri::command]
+async fn ask_start(
+    prompt: String,
+    provider_id: String,
+    window: WebviewWindow,
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    if prompt.trim().is_empty() {
+        return Err("the question is empty".to_string());
+    }
+
+    let provider = build_provider(&provider_id, &state.secrets)?;
+    let messages = build_messages(&state, &prompt)?;
+
+    let request_id = format!("ask-{}", state.next_request.fetch_add(1, Ordering::Relaxed));
+    let cancel = CancellationToken::new();
+    match state.inflight.lock() {
+        Ok(mut g) => {
+            g.insert(request_id.clone(), cancel.clone());
+        }
+        Err(poisoned) => {
+            poisoned
+                .into_inner()
+                .insert(request_id.clone(), cancel.clone());
+        }
+    }
+
+    // Record the question now so history is accurate even if the answer fails.
+    let session_id = state.with_store(|s| s.create_session("ask", Some(prompt.as_str())))?;
+    state.with_store(|s| s.append_message(session_id, "user", &prompt))?;
+
+    let request = ChatRequest {
+        messages,
+        model: provider.model().to_string(),
+        max_tokens: None,
+        temperature: None,
+    };
+
+    let app = window.clone();
+    let id = request_id.clone();
+    let handle = window.app_handle().clone();
+    tauri::async_runtime::spawn(async move {
+        let mut stream = provider.stream_chat(request, cancel);
+        let mut answer = String::new();
+        let mut failure: Option<String> = None;
+
+        while let Some(next) = stream.next().await {
+            match next {
+                Ok(delta) => {
+                    answer.push_str(&delta.content);
+                    if let Err(e) = app.emit(
+                        "ask:delta",
+                        AskDelta {
+                            request_id: id.clone(),
+                            content: delta.content,
+                        },
+                    ) {
+                        // The window is gone; stop rather than spin.
+                        eprintln!("skia: could not emit ask:delta: {e}");
+                        break;
+                    }
+                }
+                Err(e) => {
+                    failure = Some(e.to_string());
+                    break;
+                }
+            }
+        }
+
+        // Persist whatever arrived, then report. Partial answers are still worth
+        // keeping; losing them silently would be worse.
+        if let Some(state) = handle.try_state::<AppState>() {
+            if !answer.is_empty() {
+                if let Err(e) =
+                    state.with_store(|s| s.append_message(session_id, "assistant", &answer))
+                {
+                    eprintln!("skia: could not save the answer: {e}");
+                }
+            }
+            if let Err(e) = state.with_store(|s| s.end_session(session_id)) {
+                eprintln!("skia: could not close the session: {e}");
+            }
+            match state.inflight.lock() {
+                Ok(mut g) => {
+                    g.remove(&id);
+                }
+                Err(poisoned) => {
+                    poisoned.into_inner().remove(&id);
+                }
+            }
+        }
+
+        let emitted = match failure {
+            Some(message) => app.emit(
+                "ask:error",
+                AskError {
+                    request_id: id.clone(),
+                    message,
+                },
+            ),
+            None => app.emit(
+                "ask:done",
+                AskDone {
+                    request_id: id.clone(),
+                },
+            ),
+        };
+        if let Err(e) = emitted {
+            eprintln!("skia: could not emit the terminal ask event: {e}");
+        }
+    });
+
+    Ok(request_id)
+}
+
+#[tauri::command]
+fn ask_cancel(request_id: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
+    let mut guard = match state.inflight.lock() {
+        Ok(g) => g,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    match guard.remove(&request_id) {
+        Some(token) => {
+            token.cancel();
+            Ok(())
+        }
+        // Reported rather than silently accepted: the caller believes something
+        // is running, and it is not.
+        None => Err(format!("no such active request: {request_id}")),
+    }
+}
+
+// --------------------------------------------------------------- history -----
+
+#[tauri::command]
+fn history_sessions(limit: u32, state: tauri::State<'_, AppState>) -> Result<Vec<Session>, String> {
+    state.with_store(|s| s.list_sessions(limit))
+}
+
+#[tauri::command]
+fn history_messages(
+    session_id: i64,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<Message>, String> {
+    state.with_store(|s| s.messages_for_session(session_id))
+}
+
+#[tauri::command]
+fn history_search(
+    query: String,
+    limit: u32,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<Message>, String> {
+    state.with_store(|s| s.search_messages(&query, limit))
+}
+
+// -------------------------------------------------------- knowledge base -----
+
+#[tauri::command]
+fn kb_ingest_file(path: String, state: tauri::State<'_, AppState>) -> Result<String, String> {
+    let outcome = state.with_kb(|kb| kb.ingest_file(std::path::Path::new(&path)))?;
+    serde_json::to_string(&outcome).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn kb_documents(state: tauri::State<'_, AppState>) -> Result<Vec<rag::Document>, String> {
+    state.with_kb(|kb| kb.list_documents())
+}
+
+#[tauri::command]
+fn kb_remove_document(path: String, state: tauri::State<'_, AppState>) -> Result<bool, String> {
+    state.with_kb(|kb| kb.remove_document(&path))
+}
+
+// --------------------------------------------------------------- privacy -----
+
+/// Exports everything on device. Covers both databases: leaving the knowledge
+/// base out of an "export everything" would be a quiet lie.
 #[tauri::command]
 fn export_data(state: tauri::State<'_, AppState>) -> Result<String, String> {
-    state.with_store(|store| store.export_json())
+    let history: serde_json::Value =
+        serde_json::from_str(&state.with_store(|s| s.export_json())?).map_err(|e| e.to_string())?;
+    let documents = state.with_kb(|kb| kb.list_documents())?;
+    serde_json::to_string_pretty(&serde_json::json!({
+        "history": history,
+        "knowledgeBase": documents,
+    }))
+    .map_err(|e| e.to_string())
 }
 
-/// Deletes everything on device. The other half of the privacy commitment.
+/// Deletes everything on device, both databases.
 #[tauri::command]
 fn purge_data(state: tauri::State<'_, AppState>) -> Result<(), String> {
-    state.with_store(|store| store.purge_all())
+    state.with_store(|s| s.purge_all())?;
+    state.with_kb(|kb| kb.purge_all())?;
+    Ok(())
 }
 
-/// Toggles overlay visibility. With no dock icon and no taskbar entry, the
-/// hotkey is the primary way to summon and dismiss the window.
+// ------------------------------------------------------------------ setup ----
+
 fn toggle_overlay(window: &WebviewWindow) -> tauri::Result<()> {
     if window.is_visible()? {
         window.hide()
@@ -106,29 +541,29 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
-            // No dock icon on macOS. Presence invisibility is supported on every
-            // platform we target, unlike capture exclusion.
-            #[cfg(target_os = "macos")]
-            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
-
-            // Everything is stored on device, under the OS app-data directory.
-            let db_path = app.path().app_data_dir()?.join("skia.db");
-            let store = Store::open(&db_path)?;
+            // The macOS activation policy is deliberately NOT set here. See the
+            // RunEvent::Ready handler in `run()` — setting it this early stops the
+            // window from ever reaching the screen.
+            let dir = app.path().app_data_dir()?;
+            let store = Store::open(&dir.join("skia.db"))?;
+            let kb = KnowledgeBase::open(&dir.join("skia-kb.db"))?;
             let requested = read_capture_preference(&store)?;
+
             app.manage(AppState {
                 store: Mutex::new(store),
+                kb: Mutex::new(kb),
+                secrets: SecretStore::new(KEYCHAIN_SERVICE),
+                prompts: Mutex::new(PromptBundle::shipped_defaults()),
+                inflight: Mutex::new(HashMap::new()),
+                next_request: AtomicU64::new(1),
             });
 
             let window = app
                 .get_webview_window("main")
                 .ok_or("no window labelled 'main' — check tauri.conf.json")?;
 
-            // Apply stealth up front so the overlay is never briefly capturable
-            // between launch and the frontend asking for status.
             let status = stealth::apply(&window, requested)?;
             if requested && !status.capture_exclusion.active {
-                // Surfaced, not swallowed: the user needs to know the overlay is
-                // visible in screen shares on this system.
                 eprintln!(
                     "skia: capture exclusion is NOT active on this platform — {}",
                     status.capture_exclusion.guarantee
@@ -136,17 +571,82 @@ pub fn run() {
             }
 
             register_toggle_shortcut(app.handle())?;
-
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             stealth_status,
             set_capture_exclusion,
+            providers_list,
+            role_defaults,
+            set_api_key,
+            delete_api_key,
+            test_provider,
+            ask_start,
+            ask_cancel,
+            history_sessions,
+            history_messages,
+            history_search,
+            kb_ingest_file,
+            kb_documents,
+            kb_remove_document,
             export_data,
             purge_data
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|handle, event| {
+            // Order the overlay onto the screen once the app is actually ready.
+            //
+            // This cannot go in `setup()`. An app with an accessory activation
+            // policy is never activated by the system on launch, so nothing calls
+            // `makeKeyAndOrderFront` and the window is created with correct
+            // geometry but never appears. Doing it from `setup()` is too early:
+            // macOS ignores the activation, and the result is intermittent — it
+            // measured 2 of 3 cold launches via `SCShareableContent`, which is
+            // worse than a clean failure. `RunEvent::Ready` fires after the app
+            // has finished launching, where activation sticks.
+            //
+            // `show()` alone is not enough; the app itself has to be activated,
+            // which is what `set_focus` does. That is exactly why `Presence`
+            // reports `never_steals_focus: false`. An overlay nobody can see is
+            // worse than one that activates once, and having both requires a
+            // genuinely non-activating NSPanel, which is not built yet.
+            if matches!(event, tauri::RunEvent::Ready) {
+                match handle.get_webview_window("main") {
+                    Some(window) => {
+                        if let Err(e) = window.show().and_then(|()| window.set_focus()) {
+                            eprintln!("skia: the overlay could not be brought on screen: {e}");
+                        }
+                        // NOT demoting to ActivationPolicy::Accessory here, and
+                        // not in `setup()` either. Both were measured, and both
+                        // cost the overlay its visibility:
+                        //
+                        //   Accessory in setup()      → 0/5 launches on screen.
+                        //     tao applies the policy and then calls
+                        //     `activateIgnoringOtherApps` during launch, so the app
+                        //     has already opted out of activation by the time that
+                        //     runs, and the window is never ordered front.
+                        //   Accessory here, after show+focus → 0/5 on screen.
+                        //     Demoting an app whose window is already visible
+                        //     takes that window off the screen.
+                        //   No accessory policy → 5/5 on screen.
+                        //
+                        // In every failing case `CGWindowListCopyWindowInfo` still
+                        // listed the window with correct bounds while
+                        // `SCShareableContent` reported `onScreen=false`, i.e. it
+                        // existed and was invisible — the worst outcome for an
+                        // overlay.
+                        //
+                        // Hiding the dock icon and keeping an ordinary visible
+                        // window are genuinely in tension on macOS. The real fix is
+                        // a non-activating `NSPanel` (`tauri-nspanel`), which the
+                        // TRD anticipated. Until that lands, Skia keeps a dock icon
+                        // and `Presence::no_dock_icon` reports `false`.
+                    }
+                    None => eprintln!("skia: no window labelled 'main' to show"),
+                }
+            }
+        });
 }
 
 fn register_toggle_shortcut(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
@@ -157,7 +657,6 @@ fn register_toggle_shortcut(app: &tauri::AppHandle) -> Result<(), Box<dyn std::e
     app.plugin(
         ShortcutBuilder::new()
             .with_handler(move |app, _shortcut, event| {
-                // Fire on press only, otherwise the overlay toggles twice.
                 if event.state() != ShortcutState::Pressed {
                     return;
                 }

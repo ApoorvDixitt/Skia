@@ -123,7 +123,19 @@ fn caveats(active: bool, requested: bool) -> Vec<String> {
         "No user-space application can defend against device management, kernel-level \
          monitoring, or a camera pointed at your screen."
             .to_string(),
+        "The overlay takes focus once when it opens. A window that never activates needs a \
+         non-activating panel, which is not built yet."
+            .to_string(),
     ];
+
+    if cfg!(target_os = "macos") {
+        out.push(
+            "On macOS the app still shows a dock icon. Hiding it currently makes the overlay \
+             itself invisible, so it is left visible on purpose until a non-activating panel \
+             is built."
+                .to_string(),
+        );
+    }
 
     if cfg!(target_os = "macos") && active {
         out.push(
@@ -156,18 +168,36 @@ fn apply_presence<R: Runtime>(window: &WebviewWindow<R>) -> Result<Presence, Ste
 
     // Deliberately NOT calling set_focusable(false). That would permanently
     // prevent keyboard focus, which breaks any text input the overlay needs.
-    // Not stealing focus is achieved by creating the window unfocused
-    // (`"focus": false` in tauri.conf.json), so it never activates over the
-    // user's current work while remaining usable once clicked.
 
     Ok(Presence {
-        // Set via ActivationPolicy::Accessory at startup; only meaningful on macOS.
-        no_dock_icon: cfg!(target_os = "macos"),
+        // False on macOS, and measured rather than assumed. Hiding the dock icon
+        // needs ActivationPolicy::Accessory, and every ordering of that call was
+        // measured to leave the overlay invisible — see the RunEvent::Ready
+        // handler in `lib.rs`. A non-activating NSPanel is the real fix; until
+        // then the dock icon stays and this is reported honestly.
+        //
+        // Windows has no dock, so the question does not arise there.
+        no_dock_icon: !cfg!(target_os = "macos"),
         no_taskbar_entry: true,
-        // A non-activating, skip-taskbar window is not offered in the window
+        // A skip-taskbar window with no dock icon is not offered in the window
         // switcher on either platform.
         no_alt_tab: true,
-        never_steals_focus: true,
+        // Reported false because it is false, and this is measured rather than
+        // assumed. The window is created with `"focus": true`, so it activates
+        // once at launch.
+        //
+        // It is not an oversight. With `"focus": false` AND an accessory
+        // activation policy, nothing ever calls `makeKeyAndOrderFront`: the
+        // window is created with correct geometry but is never ordered onto the
+        // screen, and an explicit `show()` does not rescue it. Confirmed via
+        // `SCShareableContent`, which reported the window as `onScreen=false`
+        // while `CGWindowListCopyWindowInfo` still listed it with the right
+        // bounds. An invisible overlay is worse than one that takes focus once.
+        //
+        // Having both requires a genuinely non-activating window — an NSPanel
+        // with `.nonactivatingPanel` (`tauri-nspanel`), as the TRD anticipated.
+        // Until then this claim stays false.
+        never_steals_focus: false,
     })
 }
 
@@ -270,6 +300,20 @@ mod tests {
                 .any(|s| s.contains("Assume the overlay is visible")),
             "a failed request must warn the user, not fail silently: {c:?}"
         );
+    }
+
+    #[test]
+    fn the_focus_limitation_is_always_disclosed() {
+        // The overlay activates once on open. If someone later makes it a true
+        // non-activating panel, this caveat should go — but it must never be
+        // dropped while the behaviour is still there.
+        for (active, requested) in [(true, true), (false, false), (false, true)] {
+            let c = caveats(active, requested);
+            assert!(
+                c.iter().any(|s| s.contains("takes focus once")),
+                "the focus limitation must always be disclosed: {c:?}"
+            );
+        }
     }
 
     #[test]

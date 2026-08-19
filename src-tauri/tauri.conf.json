@@ -16,7 +16,7 @@
         "title": "Skia",
         "width": 720,
         "height": 620,
-        "focus": false,
+        "focus": true,
         "alwaysOnTop": true,
         "skipTaskbar": true
       }

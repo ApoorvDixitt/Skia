@@ -56,10 +56,11 @@ and the guarantees are narrower than "invisible". Here is the real picture:
 | | Windows 10 2004+ / 11 | macOS |
 |---|:---:|:---:|
 | Overlay pixels excluded from screen capture and sharing | ✅ documented | ⚠️ measured, undocumented |
-| No dock, taskbar, menu-bar, or alt-tab presence | ✅ | ✅ |
+| No taskbar entry | ✅ | n/a |
+| No dock icon | n/a | ❌ not yet |
 | No bot joins the call | ✅ | ✅ |
-| Silent, remappable hotkeys | ✅ | ✅ |
-| Never steals focus | ✅ | ✅ |
+| Silent global hotkey | ✅ | ✅ |
+| Never steals focus | ⚠️ takes focus once on open | ⚠️ takes focus once on open |
 | Window hidden from *enumeration* by other apps | ❌ | ❌ |
 
 **On Windows** this rests on `WDA_EXCLUDEFROMCAPTURE`, which is documented and supported.
@@ -79,6 +80,22 @@ tabs. So it works today. But there is no contract, Apple has an open bug where t
 [breaks after a capture filter is rebuilt](https://developer.apple.com/forums/thread/808016),
 and a point release could change it without notice. Treat it as a bonus, never a guarantee.
 The [harness](tools/macos-capture-harness) re-measures it on any macOS version.
+
+**On the dock icon and focus.** Both are currently traded away for the overlay actually being
+visible, and both are reported honestly in-app rather than claimed.
+
+Hiding the dock icon on macOS needs an "accessory" activation policy, and every ordering of that
+call was measured to leave the overlay invisible: applied at startup, 0 of 5 launches put the
+window on screen; applied after the window was already shown, also 0 of 5. In each failing case
+the window existed with correct geometry and simply never appeared — `CGWindowListCopyWindowInfo`
+listed it while `SCShareableContent` reported `onScreen=false`. Without the policy it is 5 of 5.
+An overlay nobody can see is worse than one with a dock icon, so the dock icon stays for now.
+
+The same tension explains the focus behaviour: the overlay activates once when it opens.
+
+The real fix for both is a genuinely non-activating window — an `NSPanel` with
+`.nonactivatingPanel` (`tauri-nspanel`), which the architecture always assumed. Until that lands,
+these rows stay honest.
 
 ### Pixels are not presence
 
