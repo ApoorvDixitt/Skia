@@ -1,0 +1,23 @@
+# Normalise line endings. Skia is built on both macOS and Windows, so this keeps
+# CRLF out of the history and matches .editorconfig's end_of_line = lf.
+* text=auto eol=lf
+
+# Binary assets — never diff or line-ending-normalise these.
+*.png binary
+*.ico binary
+*.icns binary
+*.svg text
+
+# The macOS capture harness under tools/ is a standalone diagnostic written in
+# Swift because it has to poke AppKit and ScreenCaptureKit directly. It is NOT
+# application code: nothing in Cargo.toml, tauri.conf.json, or the Vite config
+# references it, and it is never compiled into or shipped with the app.
+#
+# Marked vendored so GitHub excludes it from language statistics. Without this,
+# a few KB of diagnostic Swift outweighs the (currently small) Rust core and the
+# repository misreports its stack, which is Rust + TypeScript.
+tools/** linguist-vendored=true
+
+# Generated lockfiles — collapse them in pull request diffs.
+pnpm-lock.yaml linguist-generated=true
+src-tauri/Cargo.lock linguist-generated=true
