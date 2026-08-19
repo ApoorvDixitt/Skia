@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { AskBar } from "./components/AskBar";
+import { HistoryPanel } from "./components/HistoryPanel";
 import { StealthPanel } from "./components/StealthPanel";
 import "./App.css";
 
@@ -22,6 +23,7 @@ function App() {
 
       <StealthPanel />
       <AskBar />
+      <HistoryPanel />
 
       <footer className="app-footer">
         <p>

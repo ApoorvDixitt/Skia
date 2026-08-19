@@ -28,9 +28,16 @@ and an update replaces the app cleanly.
 
 ## Phase 1 — minimum viable app
 
-- [x] Overlay window that never steals focus and has no dock, taskbar, or alt-tab presence (P0)
-      — always-on-top, visible on all workspaces, `ActivationPolicy::Accessory` on macOS.
-      Menu-bar/tray item not added yet.
+- [~] Overlay window that never steals focus and has no dock, taskbar, or alt-tab presence (P0)
+      — always-on-top, visible on all workspaces, no taskbar entry on Windows, reliably visible
+      (5/5 cold launches). **Two parts are not done and are reported as such in-app:** on macOS
+      the dock icon is still shown, and the overlay takes focus once when it opens.
+      Both need a non-activating `NSPanel` — see below. Menu-bar/tray item not added yet.
+- [ ] Non-activating overlay panel via `tauri-nspanel` (P0) — the blocker for both remaining
+      Tier-B properties. An accessory activation policy is what hides the dock icon, but it was
+      measured to leave the window invisible in every ordering (0/5 launches on screen either at
+      startup or after showing; 5/5 without it). An `NSPanel` with `.nonactivatingPanel` is the
+      documented way to have a visible overlay that neither activates nor appears in the dock.
 - [x] Capture exclusion where the OS supports it, with in-app status that states what is
       actually active (P0) — verified end to end: the running app's overlay is absent from a
       ScreenCaptureKit capture while remaining enumerable, and the UI renders `documented`
@@ -68,14 +75,30 @@ answers, and a post-call summary with action items.
 
 ## Phase 3 — knowledge base
 
-- [ ] Ingest PDF, DOCX, TXT, and Markdown with structure-aware chunking (P0)
-- [ ] Local embeddings with incremental re-indexing on file change (P0)
-- [ ] Hybrid retrieval: BM25 and vector search fused, then reranked (P0)
-- [ ] Clickable citations resolving to the exact source passage (P0)
+- [~] Ingest PDF, DOCX, TXT, and Markdown with structure-aware chunking (P0) — **TXT and
+      Markdown done**, with heading-aware sections and exact byte offsets. PDF and DOCX return an
+      explicit `Unsupported` error rather than failing quietly; both need heavy parsers.
+- [~] Local embeddings with incremental re-indexing on file change (P0) — **incremental
+      re-indexing done** via SHA-256 per document (unchanged file is a no-op, changed file
+      replaces only its own chunks). **No embeddings**: `bge-m3` is a multi-gigabyte download and
+      is not wired up.
+- [~] Hybrid retrieval: BM25 and vector search fused, then reranked (P0) — **BM25 arm done**
+      via FTS5. The vector arm and reranker are absent, so retrieval matches words rather than
+      meaning: "money back" will not find a document that only says "refund". The fusion point
+      is marked in `retrieve()` with the reciprocal-rank-fusion formula.
+- [x] Citations resolving to the exact source passage (P0) — byte offsets are stored per chunk
+      and verified by slicing the original document, including multi-byte UTF-8. A mismatch is an
+      error, never a wrong quotation. Not yet clickable in the UI.
 - [ ] Always-on context field (P0)
-- [ ] Needs-retrieval gate so small talk skips lookup (P0)
-- [ ] Model catalog, OpenRouter, custom providers, and local models via Ollama (P0)
-- [ ] Editable system prompts per mode, with profiles and reset-to-default (P0)
+- [x] Needs-retrieval gate so small talk skips lookup (P0) — heuristic, no ML.
+- [x] Model catalog, OpenRouter, custom providers, and local models via Ollama (P0) — nine
+      providers (Ollama, LM Studio, Groq, Cerebras, OpenAI, Anthropic, Gemini, OpenRouter, plus an
+      offline mock), all through one OpenAI-compatible streaming client. Keys live in the OS
+      keychain. **Verified against a local socket, not against real vendor APIs** — that needs
+      your own keys.
+- [x] Editable system prompts per mode, with profiles and reset-to-default (P0) — three shipped
+      defaults, five profiles, tone and length presets, strict single-pass interpolation that
+      rejects unknown variables and cannot be used to inject template syntax. No settings UI yet.
 - [ ] Bounded agentic tools with a visible trace, off by default in live mode (P1)
 
 **Done when:** an answer cites a document and the citation resolves to the right passage, and
