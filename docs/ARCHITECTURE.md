@@ -56,21 +56,43 @@ The frontend deliberately stays platform-agnostic. Heavy or native work belongs 
 
 ```
 Skia/
-├─ src/                     # React + TypeScript frontend
-│  ├─ overlay/  ask/  live/  kb/
-│  ├─ providers/            # model catalog, gateway client, routing
-│  ├─ prompts/              # default system prompts and profiles
-│  └─ lib/testing/          # dev panel, mock provider, retrieval eval
+├─ src/                     # React + TypeScript, one bundle, two windows
+│  ├─ overlay/              # the compact always-on-top bar
+│  ├─ dashboard/            # knowledge base, history, providers, prompts, status
+│  ├─ lib/                  # IPC layer, validated not cast
+│  └─ styles/tokens.css     # the design system
 ├─ src-tauri/src/
 │  ├─ stealth.rs            # capture exclusion + presence, and honest reporting of both
-│  ├─ audio/                # capture, device hot-swap, resampling
-│  ├─ stt/                  # transcription backends and endpointing
-│  ├─ rag/                  # sqlite-vec + FTS5 + reranking
-│  ├─ updater.rs
-│  └─ lib.rs                # setup(), IPC commands, worker supervision
+│  ├─ catalog.rs            # the bring-your-own-key provider catalog
+│  ├─ providers/            # one OpenAI-compatible streaming client + mock
+│  ├─ secrets/              # OS keychain, behind a trait so it is testable
+│  ├─ prompts/              # shipped defaults, profiles, strict interpolation
+│  ├─ rag/                  # chunking, FTS5 retrieval, citations
+│  ├─ storage/              # sessions, messages, settings
+│  ├─ audio/                # not built: capture, device hot-swap, resampling
+│  ├─ stt/                  # not built: transcription and endpointing
+│  └─ lib.rs                # setup(), IPC commands, window wiring
 ├─ src-tauri/tauri.conf.json
 └─ .github/workflows/
 ```
+
+## Two windows, on purpose
+
+The frontend is one bundle that renders a different surface depending on the
+window label, chosen in `src/App.tsx`:
+
+- **`overlay`** — frameless, transparent, always on top, ~680×92 and resized from
+  the frontend as an answer grows. This is the in-call surface, so it holds only
+  what can be read mid-conversation.
+- **`dashboard`** — an ordinary 1040×720 window, created hidden and shown on
+  demand. Everything that needs room lives here.
+
+The split exists because a single window cannot be both. An earlier version put
+the stealth status, Ask, and history in one 720×620 window, and the result read as
+a diagnostics page rather than an app: the honest capture-status panel, which is
+essential but verbose, crowded out the thing the user actually came to do. Moving
+it to a dashboard section lets the overlay compress the same information into a
+status dot with a tooltip, without dropping any of it.
 
 Directories are created as the code that needs them lands, rather than up front as empty
 placeholders.

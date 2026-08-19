@@ -1,0 +1,178 @@
+/* Copyright 2026 Apoorv Dixit
+   SPDX-License-Identifier: Apache-2.0
+
+   Skia's design system: a precision instrument panel.
+
+   The product's whole job is reading out what is actually true, so the interface
+   is built like a measuring device rather than a chat app. Three rules hold it
+   together:
+
+   1. Warm monochrome, with amber as the ONLY chroma. Colour is a signal, never
+      decoration, so when something turns amber it means something.
+   2. Anything MEASURED is set in monospace — mechanisms, offsets, checksums,
+      versions, OS strings. If a value came from the system, it looks like it.
+   3. Micro-labels are uppercase with wide tracking, like the legend on an
+      instrument. Titles are tight. The contrast between the two carries the
+      character, which is why no display typeface is needed.
+
+   No web fonts: Skia is local-first and must work with no network, so the stack
+   is system fonts used deliberately. */
+
+:root {
+  /* ---- brand ---- */
+  --ink: #141311;
+  --paper: #fbf9f5;
+  --taupe: #7e7871;
+  --taupe-dim: #9a9288;
+
+  /* ---- the single accent: an amber readout ---- */
+  --amber: #c8922f;
+  --amber-bright: #e0a94a;
+  --amber-soft: rgba(200, 146, 47, 0.12);
+  --amber-line: rgba(200, 146, 47, 0.42);
+
+  /* ---- a red only for destruction and genuine failure ---- */
+  --alarm: #b4503a;
+  --alarm-soft: rgba(180, 80, 58, 0.12);
+  --alarm-line: rgba(180, 80, 58, 0.4);
+
+  /* ---- surfaces: dark by default, because it sits over other windows ---- */
+  --bg: #16151300;
+  --panel: rgba(24, 23, 21, 0.86);
+  --panel-solid: #181715;
+  --raised: rgba(251, 249, 245, 0.045);
+  --sunken: rgba(0, 0, 0, 0.24);
+
+  --text: var(--paper);
+  --text-muted: #a49c92;
+  --text-faint: #6f6862;
+
+  /* ---- hairlines: the instrument's engraving ---- */
+  --line: rgba(251, 249, 245, 0.1);
+  --line-strong: rgba(251, 249, 245, 0.22);
+  --line-bright: rgba(251, 249, 245, 0.38);
+
+  /* ---- geometry: small radii, because instruments are machined ---- */
+  --r-sm: 5px;
+  --r: 8px;
+  --r-lg: 12px;
+  --r-pill: 999px;
+
+  /* ---- type ---- */
+  --sans:
+    -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI",
+    system-ui, sans-serif;
+  --mono:
+    ui-monospace, "SF Mono", SFMono-Regular, "Cascadia Code", "Menlo",
+    Consolas, monospace;
+
+  --t-micro: 0.625rem; /* uppercase legend */
+  --t-xs: 0.6875rem;
+  --t-sm: 0.75rem;
+  --t-base: 0.8125rem;
+  --t-md: 0.875rem;
+  --t-lg: 1rem;
+  --t-xl: 1.25rem;
+
+  --track-legend: 0.11em;
+  --track-tight: -0.014em;
+
+  /* ---- motion: mechanical, short, never bouncy ---- */
+  --ease: cubic-bezier(0.32, 0.72, 0.28, 1);
+  --fast: 120ms;
+  --med: 200ms;
+
+  --shadow-panel: 0 18px 48px -12px rgba(0, 0, 0, 0.7),
+    0 2px 8px -2px rgba(0, 0, 0, 0.5);
+
+  color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--sans);
+  font-size: var(--t-base);
+  line-height: 1.5;
+  color: var(--text);
+  background: transparent;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-synthesis: none;
+  /* The overlay is a floating instrument, not a document. */
+  overflow: hidden;
+  user-select: none;
+  cursor: default;
+}
+
+/* Text the user is meant to read or copy opts back in. */
+input,
+textarea,
+[data-selectable] {
+  user-select: text;
+}
+
+/* ---- the engraved legend ---- */
+.legend {
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-legend);
+  text-transform: uppercase;
+  color: var(--text-faint);
+  font-weight: 500;
+}
+
+/* ---- anything the system measured ---- */
+.measured {
+  font-family: var(--mono);
+  font-size: var(--t-xs);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- film grain: gives the dark surfaces depth without a gradient ---- */
+.grain::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.035;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+:focus-visible {
+  outline: 1.5px solid var(--amber-bright);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

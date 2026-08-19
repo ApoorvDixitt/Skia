@@ -1,8 +1,12 @@
 {
   "compilerOptions": {
-    "target": "ES2020",
+    /* ES2022 so `new Error(msg, { cause })` type-checks. The `preserve-caught-error`
+       lint rule requires attaching a cause, and ES2020 has no `ErrorOptions`, so
+       the two rules were in direct conflict. Both WKWebView (macOS) and WebView2
+       (Chromium) support ES2022, and Skia targets no other runtime. */
+    "target": "ES2022",
     "useDefineForClassFields": true,
-    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "skipLibCheck": true,
 

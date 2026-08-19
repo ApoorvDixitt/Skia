@@ -1,0 +1,397 @@
+/* Copyright 2026 Apoorv Dixit
+   SPDX-License-Identifier: Apache-2.0
+
+   The overlay bar. The window is frameless and transparent, so `.shell` is the
+   entire visible application and owns its own corners, edge and glass. */
+
+.shell {
+  position: relative;
+  margin: 0;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--line-strong);
+  background: var(--panel);
+  /* Glass: the point of a transparent window. */
+  backdrop-filter: blur(22px) saturate(1.25);
+  -webkit-backdrop-filter: blur(22px) saturate(1.25);
+  box-shadow: var(--shadow-panel);
+  overflow: hidden;
+}
+
+/* ---------------------------------------------------------------- the bar --- */
+
+.bar {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  height: 56px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding-right: 10px;
+  border-right: 1px solid var(--line);
+  height: 30px;
+}
+
+/* The mark: a pebble with its shade, drawn rather than loaded. Skia is Greek for
+   shadow, and the whole brand is one shape plus the shape it casts. */
+.mark {
+  position: relative;
+  width: 15px;
+  height: 15px;
+  border-radius: 58% 42% 47% 53% / 52% 55% 45% 48%;
+  background: var(--paper);
+  flex-shrink: 0;
+}
+
+.mark::after {
+  content: "";
+  position: absolute;
+  inset: -3px -6px 4px 6px;
+  border-radius: 60% 40% 50% 50% / 55% 50% 50% 45%;
+  background: var(--taupe);
+  z-index: -1;
+}
+
+/* ---- the status dot: the compressed capture story ---- */
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--r-pill);
+  flex-shrink: 0;
+  cursor: help;
+}
+
+/* A vendor-documented guarantee reads as plainly true. */
+.dot--documented {
+  background: var(--paper);
+  box-shadow: 0 0 7px rgba(251, 249, 245, 0.5);
+}
+
+/* Measured-not-guaranteed: amber, and hollow, so it can never be mistaken for
+   the filled documented state at a glance. */
+.dot--measured {
+  background: transparent;
+  border: 2px solid var(--amber);
+  box-shadow: 0 0 7px var(--amber-soft);
+}
+
+/* Requested and NOT applied. The one state that must never look calm. */
+.dot--alarm {
+  background: var(--alarm);
+  box-shadow: 0 0 8px rgba(180, 80, 58, 0.65);
+  animation: dot-pulse 1.8s var(--ease) infinite;
+}
+
+.dot--off {
+  background: transparent;
+  border: 1px solid var(--line-bright);
+}
+
+.dot--unknown {
+  background: var(--text-faint);
+}
+
+@keyframes dot-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+/* ---------------------------------------------------------------- asking --- */
+
+.ask {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  padding: 0 12px;
+  font: inherit;
+  color: var(--text);
+  background: var(--sunken);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  transition:
+    border-color var(--fast) var(--ease),
+    background-color var(--fast) var(--ease);
+}
+
+.input::placeholder {
+  color: var(--text-faint);
+}
+
+.input:hover:not(:disabled) {
+  border-color: var(--line-strong);
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--line-bright);
+  background: rgba(0, 0, 0, 0.34);
+}
+
+.input:disabled {
+  color: var(--text-faint);
+  cursor: not-allowed;
+}
+
+.btn {
+  height: 34px;
+  padding: 0 14px;
+  font-size: var(--t-sm);
+  font-weight: 550;
+  letter-spacing: 0.005em;
+  border-radius: var(--r);
+  border: 1px solid var(--line-strong);
+  color: var(--text);
+  background: var(--raised);
+  white-space: nowrap;
+  transition:
+    border-color var(--fast) var(--ease),
+    background-color var(--fast) var(--ease),
+    opacity var(--fast) var(--ease);
+}
+
+.btn:hover:not(:disabled) {
+  border-color: var(--line-bright);
+  background: rgba(251, 249, 245, 0.09);
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn--go[data-canned="no"] {
+  background: var(--paper);
+  border-color: var(--paper);
+  color: var(--ink);
+}
+
+.btn--go[data-canned="no"]:hover:not(:disabled) {
+  background: #fff;
+  border-color: #fff;
+}
+
+/* Pressing Ask with the mock selected must not look like it produces an answer. */
+.btn--go[data-canned="yes"] {
+  border-style: dashed;
+  border-color: var(--amber-line);
+  color: var(--amber-bright);
+  background: var(--amber-soft);
+}
+
+.btn--stop {
+  border-color: var(--alarm-line);
+  color: #eaa593;
+  background: var(--alarm-soft);
+}
+
+.btn--quiet {
+  height: 26px;
+  padding: 0 10px;
+  font-size: var(--t-xs);
+  color: var(--text-muted);
+  border-color: var(--line);
+  background: transparent;
+}
+
+/* ----------------------------------------------------------------- tools --- */
+
+.tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.picker {
+  max-width: 132px;
+  height: 28px;
+  font: inherit;
+  font-size: var(--t-xs);
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 0 4px;
+}
+
+.icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--r-sm);
+  color: var(--text-muted);
+  border: 1px solid transparent;
+  transition:
+    color var(--fast) var(--ease),
+    background-color var(--fast) var(--ease),
+    border-color var(--fast) var(--ease);
+}
+
+.icon:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--raised);
+  border-color: var(--line);
+}
+
+.icon:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* The eye lights amber when exclusion is on: on this OS the guarantee is
+   measured, not promised, and amber is how the system says so everywhere else. */
+.icon[data-on="yes"] {
+  color: var(--amber-bright);
+}
+
+/* ----------------------------------------------------------------- panel --- */
+
+.panel {
+  border-top: 1px solid var(--line);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  animation: panel-in var(--med) var(--ease);
+}
+
+@keyframes panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+.answer {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.answer-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.legend--dim {
+  color: var(--text-faint);
+}
+
+.answer[data-canned="yes"] {
+  padding: 9px 11px;
+  border: 1px dashed var(--amber-line);
+  border-radius: var(--r);
+  background: var(--amber-soft);
+}
+
+.answer[data-canned="yes"] .answer-head .legend {
+  color: var(--amber-bright);
+}
+
+.answer-warn {
+  margin: 0;
+  font-size: var(--t-xs);
+  color: var(--amber-bright);
+}
+
+.answer-body {
+  margin: 0;
+  font-size: var(--t-md);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.answer-wait,
+.grounding {
+  margin: 0;
+  font-size: var(--t-xs);
+  color: var(--text-muted);
+}
+
+.answer-error,
+.notice {
+  margin: 0;
+  padding: 7px 9px;
+  font-size: var(--t-xs);
+  color: #eaa593;
+  border: 1px solid var(--alarm-line);
+  border-left-width: 3px;
+  border-radius: var(--r-sm);
+  background: var(--alarm-soft);
+}
+
+.pulse {
+  width: 5px;
+  height: 5px;
+  border-radius: var(--r-pill);
+  background: var(--amber-bright);
+  animation: dot-pulse 1s var(--ease) infinite;
+}
+
+/* ---- grounding chips ---- */
+
+.grounding {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.grounding--skipped,
+.grounding--empty {
+  display: block;
+  color: var(--text-faint);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chip {
+  display: inline-block;
+  padding: 2px 7px;
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  color: var(--text-muted);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--sunken);
+  cursor: help;
+}
+
+.panel-foot {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* Fallback surface when the window label is unrecognised. */
+.unknown-surface {
+  padding: 18px;
+  color: var(--text);
+}

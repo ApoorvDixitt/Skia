@@ -40,6 +40,11 @@ const DEFAULT_TOGGLE_SHORTCUT: &str = if cfg!(target_os = "macos") {
 
 const KEY_CAPTURE_EXCLUSION: &str = "stealth.capture_exclusion_requested";
 const KEYCHAIN_SERVICE: &str = "dev.skia.apikeys";
+/// The compact always-on-top bar that sits over a call.
+const OVERLAY_LABEL: &str = "overlay";
+/// The full window for the knowledge base, history, and settings. Kept separate
+/// so the overlay can stay small: anything that needs room lives here.
+const DASHBOARD_LABEL: &str = "dashboard";
 /// How many knowledge-base chunks to put in front of the model.
 const RETRIEVAL_LIMIT: u32 = 6;
 
@@ -286,10 +291,40 @@ struct AskError {
     message: String,
 }
 
+/// A passage that was actually put in front of the model, shown to the user so an
+/// answer's grounding is inspectable rather than asserted.
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AskSource {
+    path: String,
+    section: Option<String>,
+    excerpt: String,
+    start_offset: usize,
+    end_offset: usize,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AskSources {
+    request_id: String,
+    /// False when the needs-retrieval gate decided the turn did not warrant a
+    /// lookup, which is different from looking and finding nothing.
+    searched: bool,
+    sources: Vec<AskSource>,
+}
+
 /// Builds the grounded prompt for a question: retrieve, then render.
-fn build_messages(state: &AppState, prompt: &str) -> Result<Vec<ChatMessage>, String> {
+///
+/// Returns the passages alongside the messages so the caller can show the user
+/// exactly what grounded the answer.
+fn build_messages(
+    state: &AppState,
+    prompt: &str,
+) -> Result<(Vec<ChatMessage>, bool, Vec<AskSource>), String> {
     // The gate keeps small talk from paying for a lookup.
-    let kb_context = if rag::needs_retrieval(prompt) {
+    let searched = rag::needs_retrieval(prompt);
+    let mut sources = Vec::new();
+    let kb_context = if searched {
         let chunks = state.with_kb(|kb| kb.retrieve(prompt, RETRIEVAL_LIMIT))?;
         let mut buf = String::new();
         for c in &chunks {
@@ -302,6 +337,13 @@ fn build_messages(state: &AppState, prompt: &str) -> Result<Vec<ChatMessage>, St
                     .unwrap_or_default(),
                 c.text
             ));
+            sources.push(AskSource {
+                path: c.path.clone(),
+                section: c.section.clone(),
+                excerpt: c.text.clone(),
+                start_offset: c.start_offset,
+                end_offset: c.end_offset,
+            });
         }
         buf
     } else {
@@ -325,7 +367,11 @@ fn build_messages(state: &AppState, prompt: &str) -> Result<Vec<ChatMessage>, St
         .render(Mode::Ask, &vars, Tone::Neutral, Length::Normal)
         .map_err(|e| e.to_string())?;
 
-    Ok(vec![ChatMessage::system(system), ChatMessage::user(prompt)])
+    Ok((
+        vec![ChatMessage::system(system), ChatMessage::user(prompt)],
+        searched,
+        sources,
+    ))
 }
 
 #[tauri::command]
@@ -340,7 +386,7 @@ async fn ask_start(
     }
 
     let provider = build_provider(&provider_id, &state.secrets)?;
-    let messages = build_messages(&state, &prompt)?;
+    let (messages, searched, sources) = build_messages(&state, &prompt)?;
 
     let request_id = format!("ask-{}", state.next_request.fetch_add(1, Ordering::Relaxed));
     let cancel = CancellationToken::new();
@@ -358,6 +404,20 @@ async fn ask_start(
     // Record the question now so history is accurate even if the answer fails.
     let session_id = state.with_store(|s| s.create_session("ask", Some(prompt.as_str())))?;
     state.with_store(|s| s.append_message(session_id, "user", &prompt))?;
+
+    // Announce the grounding before any token arrives, so the user can see what
+    // the answer is based on while it is still being written — and can see that
+    // it is based on nothing, when that is the case.
+    if let Err(e) = window.emit(
+        "ask:sources",
+        AskSources {
+            request_id: request_id.clone(),
+            searched,
+            sources,
+        },
+    ) {
+        eprintln!("skia: could not emit ask:sources: {e}");
+    }
 
     let request = ChatRequest {
         messages,
@@ -460,6 +520,112 @@ fn ask_cancel(request_id: String, state: tauri::State<'_, AppState>) -> Result<(
     }
 }
 
+// -------------------------------------------------------------- windows ------
+
+/// Opens the dashboard, creating nothing: it is declared hidden in the config so
+/// it is warm by the time the user asks for it.
+#[tauri::command]
+fn open_dashboard(app: tauri::AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window(DASHBOARD_LABEL)
+        .ok_or("no dashboard window — check tauri.conf.json")?;
+    window.show().map_err(|e| e.to_string())?;
+    window.unminimize().map_err(|e| e.to_string())?;
+    window.set_focus().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn hide_dashboard(app: tauri::AppHandle) -> Result<(), String> {
+    match app.get_webview_window(DASHBOARD_LABEL) {
+        Some(window) => window.hide().map_err(|e| e.to_string()),
+        None => Err("no dashboard window".to_string()),
+    }
+}
+
+#[tauri::command]
+fn hide_overlay(app: tauri::AppHandle) -> Result<(), String> {
+    match app.get_webview_window(OVERLAY_LABEL) {
+        Some(window) => window.hide().map_err(|e| e.to_string()),
+        None => Err("no overlay window".to_string()),
+    }
+}
+
+/// Resizes the overlay so it can grow to fit an answer and shrink back to a bar.
+/// The frontend measures its own content; only it knows the right height.
+#[tauri::command]
+fn resize_overlay(height: f64, app: tauri::AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window(OVERLAY_LABEL)
+        .ok_or("no overlay window")?;
+    let current = window.outer_size().map_err(|e| e.to_string())?;
+    let scale = window.scale_factor().map_err(|e| e.to_string())?;
+    // Clamped so a frontend bug cannot produce a window taller than the screen
+    // or one too short to contain the input row.
+    let clamped = height.clamp(64.0, 900.0);
+    window
+        .set_size(tauri::Size::Physical(tauri::PhysicalSize {
+            width: current.width,
+            height: (clamped * scale).round() as u32,
+        }))
+        .map_err(|e| e.to_string())
+}
+
+// -------------------------------------------------------------- prompts ------
+
+#[tauri::command]
+fn prompts_get(state: tauri::State<'_, AppState>) -> Result<PromptBundle, String> {
+    let bundle = match state.prompts.lock() {
+        Ok(g) => g,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    Ok(bundle.clone())
+}
+
+#[tauri::command]
+fn prompts_template(
+    mode: Mode,
+    profile: Profile,
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    let bundle = match state.prompts.lock() {
+        Ok(g) => g,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    Ok(bundle.template(mode, profile).to_string())
+}
+
+/// Saves an edited prompt. Rejects a template referring to variables Skia cannot
+/// fill, so a broken prompt fails here rather than silently mid-call.
+#[tauri::command]
+fn prompts_set_override(
+    mode: Mode,
+    profile: Profile,
+    template: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let mut bundle = match state.prompts.lock() {
+        Ok(g) => g,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    bundle
+        .set_override(mode, profile, template)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn prompts_reset(
+    mode: Mode,
+    profile: Profile,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let mut bundle = match state.prompts.lock() {
+        Ok(g) => g,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    bundle.reset(mode, profile);
+    Ok(())
+}
+
 // --------------------------------------------------------------- history -----
 
 #[tauri::command]
@@ -540,6 +706,7 @@ fn toggle_overlay(window: &WebviewWindow) -> tauri::Result<()> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             // The macOS activation policy is deliberately NOT set here. See the
             // RunEvent::Ready handler in `run()` — setting it this early stops the
@@ -559,8 +726,8 @@ pub fn run() {
             });
 
             let window = app
-                .get_webview_window("main")
-                .ok_or("no window labelled 'main' — check tauri.conf.json")?;
+                .get_webview_window(OVERLAY_LABEL)
+                .ok_or("no window labelled overlay — check tauri.conf.json")?;
 
             let status = stealth::apply(&window, requested)?;
             if requested && !status.capture_exclusion.active {
@@ -589,6 +756,14 @@ pub fn run() {
             kb_ingest_file,
             kb_documents,
             kb_remove_document,
+            open_dashboard,
+            hide_dashboard,
+            hide_overlay,
+            resize_overlay,
+            prompts_get,
+            prompts_template,
+            prompts_set_override,
+            prompts_reset,
             export_data,
             purge_data
         ])
@@ -612,7 +787,7 @@ pub fn run() {
             // worse than one that activates once, and having both requires a
             // genuinely non-activating NSPanel, which is not built yet.
             if matches!(event, tauri::RunEvent::Ready) {
-                match handle.get_webview_window("main") {
+                match handle.get_webview_window(OVERLAY_LABEL) {
                     Some(window) => {
                         if let Err(e) = window.show().and_then(|()| window.set_focus()) {
                             eprintln!("skia: the overlay could not be brought on screen: {e}");
@@ -643,7 +818,7 @@ pub fn run() {
                         // TRD anticipated. Until that lands, Skia keeps a dock icon
                         // and `Presence::no_dock_icon` reports `false`.
                     }
-                    None => eprintln!("skia: no window labelled 'main' to show"),
+                    None => eprintln!("skia: no overlay window to show"),
                 }
             }
         });
@@ -660,7 +835,7 @@ fn register_toggle_shortcut(app: &tauri::AppHandle) -> Result<(), Box<dyn std::e
                 if event.state() != ShortcutState::Pressed {
                     return;
                 }
-                if let Some(window) = app.get_webview_window("main") {
+                if let Some(window) = app.get_webview_window(OVERLAY_LABEL) {
                     if let Err(e) = toggle_overlay(&window) {
                         eprintln!("skia: failed to toggle overlay: {e}");
                     }

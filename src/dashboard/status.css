@@ -1,0 +1,678 @@
+/* Copyright 2026 Apoorv Dixit
+   SPDX-License-Identifier: Apache-2.0
+
+   The stealth panel's visual grammar, carried over from the single-window app
+   and re-cut on the dashboard tokens. Weight only ever moves one direction:
+   solid paper for what the OS vendor documents, dashed amber for what was
+   merely measured, hollow for what does not exist, alarm for what was asked
+   for and refused. Nothing unguaranteed may borrow the styling of something
+   guaranteed. */
+
+.st-os {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+}
+
+.st-os-name {
+  font-size: var(--t-sm);
+  font-weight: 600;
+}
+
+/* ---- the two tiers ---- */
+
+.st-tiers {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .st-tiers {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.st-tier {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 13px 14px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--line-strong);
+  border-radius: var(--r);
+  background-color: var(--sunken);
+}
+
+.st-tier[data-tone="strong"] {
+  border-left-color: var(--paper);
+}
+
+/* Dashed rail: the mechanism works, nobody promised it would. */
+.st-tier[data-tone="caution"] {
+  border-left-style: dashed;
+  border-left-color: var(--amber);
+}
+
+.st-tier[data-tone="alarm"] {
+  border-left-color: var(--alarm);
+}
+
+.st-tier[data-tone="unavailable"] {
+  border-left-style: dotted;
+  border-left-color: var(--line-strong);
+}
+
+.st-tier-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.st-tier-title {
+  margin: 2px 0 0;
+  font-size: var(--t-md);
+  font-weight: 600;
+  letter-spacing: var(--track-tight);
+}
+
+.st-tier-chip {
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  font-size: var(--t-xs);
+  color: var(--text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.st-tier-chip[data-tone="strong"] {
+  border-color: var(--line-bright);
+  color: var(--text);
+}
+
+.st-tier-chip[data-tone="alarm"] {
+  border-color: var(--alarm-line);
+  color: var(--alarm);
+}
+
+.st-state {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+}
+
+.st-state-copy {
+  min-width: 0;
+}
+
+.st-dot {
+  width: 11px;
+  height: 11px;
+  margin-top: 4px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.st-dot[data-tone="strong"] {
+  background-color: var(--paper);
+}
+
+/* Half-filled on purpose: half a guarantee. */
+.st-dot[data-tone="caution"] {
+  border: 1px solid var(--amber);
+  background-image: linear-gradient(
+    to right,
+    var(--amber) 0 50%,
+    transparent 50% 100%
+  );
+}
+
+.st-dot[data-tone="alarm"] {
+  background-color: var(--alarm);
+}
+
+.st-dot[data-tone="off"] {
+  border: 1px solid var(--line-strong);
+}
+
+.st-dot[data-tone="unavailable"] {
+  border: 1px dashed var(--line-strong);
+}
+
+.st-headline {
+  margin: 0 0 2px;
+  font-size: var(--t-base);
+  font-weight: 600;
+}
+
+/* Lighter than `documented`, in the caution hue, never a win. */
+.st-tier[data-tone="caution"] .st-headline {
+  font-weight: 500;
+  color: var(--amber-bright);
+}
+
+.st-tier[data-tone="alarm"] .st-headline {
+  color: var(--alarm);
+}
+
+.st-tier[data-tone="off"] .st-headline,
+.st-tier[data-tone="unavailable"] .st-headline {
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.st-detail {
+  margin: 0;
+  font-size: var(--t-sm);
+  color: var(--text-muted);
+}
+
+.st-warning {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--alarm-line);
+  border-radius: var(--r-sm);
+  background-color: var(--alarm-soft);
+  color: var(--alarm);
+  font-size: var(--t-sm);
+}
+
+.st-note {
+  margin: 0;
+  font-size: var(--t-xs);
+  color: var(--text-faint);
+}
+
+/* ---- requested vs applied, stated as two separate facts ---- */
+
+.st-facts {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+  gap: 9px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background-color: var(--raised);
+}
+
+.st-fact {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.st-fact dd {
+  margin: 0;
+  font-size: var(--t-sm);
+  overflow-wrap: anywhere;
+}
+
+.st-fact dd[data-mismatch="true"] {
+  color: var(--alarm);
+  font-weight: 700;
+}
+
+.st-fact-empty {
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+/* ---- the guarantee sentence from the backend ---- */
+
+.st-guarantee {
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background-color: var(--raised);
+}
+
+.st-guarantee[data-level="measured"] {
+  border-style: dashed;
+  border-color: var(--amber-line);
+  background-color: var(--amber-soft);
+}
+
+.st-guarantee-label {
+  margin: 0 0 3px;
+}
+
+.st-guarantee[data-level="measured"] .st-guarantee-label {
+  color: var(--amber-bright);
+  font-weight: 700;
+}
+
+.st-guarantee-text {
+  margin: 0;
+  font-size: var(--t-sm);
+  color: var(--text);
+}
+
+/* ---- support badge ---- */
+
+.st-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  font-size: var(--t-xs);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Filled and inked. The only badge that gets to look settled. */
+.st-badge[data-level="documented"] {
+  border-color: var(--paper);
+  background-color: var(--paper);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* Outlined, dashed, unfilled. Deliberately weaker than `documented`. */
+.st-badge[data-level="measured"] {
+  border-style: dashed;
+  border-color: var(--amber-line);
+  color: var(--amber-bright);
+  font-weight: 500;
+}
+
+.st-badge[data-level="unavailable"] {
+  color: var(--text-faint);
+  font-weight: 500;
+}
+
+.st-badge-mark {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.st-badge[data-level="documented"] .st-badge-mark {
+  background-color: var(--ink);
+}
+
+.st-badge[data-level="measured"] .st-badge-mark {
+  border: 1px solid var(--amber);
+  background-image: linear-gradient(
+    to right,
+    var(--amber) 0 50%,
+    transparent 50% 100%
+  );
+}
+
+.st-badge[data-level="unavailable"] .st-badge-mark {
+  border: 1px solid var(--text-faint);
+}
+
+/* ---- where this level sits relative to the others ---- */
+
+.st-scale {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.st-scale-track {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 7px;
+}
+
+.st-scale-rung {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.st-scale-bar {
+  height: 3px;
+  border-radius: 2px;
+  background-color: var(--line);
+}
+
+.st-scale-label {
+  font-size: var(--t-xs);
+  color: var(--text-faint);
+}
+
+.st-scale-rung[data-current="true"] .st-scale-label {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.st-scale-rung[data-current="true"][data-rung="documented"] .st-scale-bar {
+  background-color: var(--paper);
+}
+
+/* A broken bar for a broken promise: measured never gets a solid fill. */
+.st-scale-rung[data-current="true"][data-rung="measured"] .st-scale-bar {
+  background-color: transparent;
+  background-image: repeating-linear-gradient(
+    90deg,
+    var(--amber) 0 4px,
+    transparent 4px 7px
+  );
+}
+
+.st-scale-rung[data-current="true"][data-rung="measured"] .st-scale-label {
+  color: var(--amber-bright);
+}
+
+.st-scale-rung[data-current="true"][data-rung="none"] .st-scale-bar {
+  background-color: var(--line-strong);
+}
+
+.st-scale-rung[data-current="true"][data-rung="none"] .st-scale-label {
+  color: var(--text-muted);
+}
+
+.st-scale-caption {
+  margin: 0;
+  font-size: var(--t-xs);
+  color: var(--text-muted);
+}
+
+.st-scale[data-level="measured"] .st-scale-caption {
+  color: var(--amber-bright);
+}
+
+/* ---- the request switch ---- */
+
+.st-control {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.st-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 2px;
+  color: var(--text);
+  text-align: left;
+  align-self: flex-start;
+}
+
+.st-switch:disabled {
+  color: var(--text-faint);
+  cursor: not-allowed;
+}
+
+.st-switch-track {
+  position: relative;
+  width: 34px;
+  height: 19px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-pill);
+  background-color: var(--sunken);
+  flex-shrink: 0;
+  transition:
+    background-color var(--fast) var(--ease),
+    border-color var(--fast) var(--ease);
+}
+
+.st-switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background-color: var(--text-muted);
+  transition:
+    transform var(--fast) var(--ease),
+    background-color var(--fast) var(--ease);
+}
+
+.st-switch[aria-checked="true"] .st-switch-track {
+  border-color: var(--paper);
+  background-color: var(--paper);
+}
+
+.st-switch[aria-checked="true"] .st-switch-thumb {
+  transform: translateX(15px);
+  background-color: var(--ink);
+}
+
+/* An "on" switch must not look like a win when the guarantee is only
+   measured, and must not look like one at all when the OS refused it. */
+.st-tier[data-tone="caution"] .st-switch[aria-checked="true"] .st-switch-track {
+  border-style: dashed;
+  border-color: var(--amber);
+  background-color: var(--amber-soft);
+}
+
+.st-tier[data-tone="caution"] .st-switch[aria-checked="true"] .st-switch-thumb {
+  background-color: var(--amber);
+}
+
+.st-tier[data-tone="alarm"] .st-switch[aria-checked="true"] .st-switch-track {
+  border-style: dashed;
+  border-color: var(--alarm);
+  background-color: var(--alarm-soft);
+}
+
+.st-tier[data-tone="alarm"] .st-switch[aria-checked="true"] .st-switch-thumb {
+  background-color: var(--alarm);
+}
+
+.st-switch:disabled .st-switch-track {
+  opacity: 0.5;
+}
+
+.st-switch-track[data-busy="true"] {
+  border-style: dashed;
+}
+
+.st-switch-label {
+  font-size: var(--t-base);
+  font-weight: 500;
+}
+
+.st-switch-status {
+  font-size: var(--t-xs);
+  color: var(--text-faint);
+}
+
+/* ---- tier B rows ---- */
+
+.st-presence-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.st-presence-row {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+}
+
+.st-presence-mark {
+  position: relative;
+  width: 12px;
+  height: 12px;
+  margin-top: 3px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.st-presence-row[data-state="applied"] .st-presence-mark {
+  background-color: var(--paper);
+}
+
+.st-presence-row[data-state="applied"] .st-presence-mark::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 2px;
+  width: 4px;
+  height: 7px;
+  border: solid var(--ink);
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(40deg);
+}
+
+.st-presence-row[data-state="structural"] .st-presence-mark {
+  border: 1px solid var(--line-strong);
+}
+
+.st-presence-row[data-state="missing"] .st-presence-mark {
+  background-color: var(--alarm);
+}
+
+.st-presence-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.st-presence-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--t-base);
+  font-weight: 500;
+}
+
+.st-presence-row[data-state="missing"] .st-presence-label {
+  color: var(--alarm);
+}
+
+.st-presence-flag {
+  padding: 0 6px;
+  border: 1px solid var(--alarm-line);
+  border-radius: var(--r-pill);
+  font-size: var(--t-micro);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--alarm);
+  white-space: nowrap;
+}
+
+.st-presence-detail {
+  font-size: var(--t-xs);
+  color: var(--text-muted);
+}
+
+/* ---- pixels are not presence ---- */
+
+.st-limitation {
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-top: 2px solid var(--line-strong);
+  border-radius: var(--r);
+  background-color: var(--sunken);
+}
+
+.st-limitation-title {
+  margin: 0 0 4px;
+  font-size: var(--t-base);
+  font-weight: 600;
+}
+
+.st-limitation-text {
+  margin: 0 0 6px;
+  font-size: var(--t-sm);
+  color: var(--text-muted);
+}
+
+.st-limitation-scope {
+  margin: 0;
+  font-size: var(--t-xs);
+  color: var(--text-faint);
+}
+
+/* ---- caveats, in the flow, never collapsed ---- */
+
+.st-caveats {
+  padding: 12px 14px;
+  border: 1px solid var(--amber-line);
+  border-radius: var(--r);
+  background-color: var(--amber-soft);
+}
+
+.st-caveats-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 0 6px;
+  font-size: var(--t-xs);
+  font-weight: 700;
+  letter-spacing: var(--track-legend);
+  text-transform: uppercase;
+  color: var(--amber-bright);
+}
+
+.st-caveats-count {
+  padding: 0 5px;
+  border: 1px solid var(--amber-line);
+  border-radius: var(--r-pill);
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.st-caveats-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 0;
+  padding-left: 16px;
+  font-size: var(--t-sm);
+  color: var(--text);
+}
+
+/* ---- loading / failed panel states ---- */
+
+.st-pending {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background-color: var(--sunken);
+}
+
+.st-pending-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.st-pending-headline {
+  margin: 0;
+  font-size: var(--t-base);
+  font-weight: 600;
+}
+
+.st-pending-detail {
+  margin: 0;
+  font-size: var(--t-sm);
+  color: var(--text-muted);
+}
+
+.st-pending .db-spinner {
+  margin-top: 3px;
+}
