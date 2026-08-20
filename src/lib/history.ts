@@ -100,3 +100,98 @@ export async function fetchExport(): Promise<string> {
 export async function purgeData(): Promise<void> {
   await invoke<unknown>("purge_data");
 }
+
+// -------------------------------------------------------- backup / restore ----
+
+/**
+ * Backup and restore, mirrored from Rust.
+ *
+ * The manifest is surfaced rather than hidden: a backup the user cannot
+ * inspect is a backup they cannot trust, and `excludes` is where the app says
+ * out loud that API keys are not in it.
+ */
+export interface BackupManifest {
+  manifestVersion: number;
+  storageSchemaVersion: number;
+  kbSchemaVersion: number;
+  deviceId: string;
+  generation: number;
+  createdAt: number;
+  snapshotBytes: number;
+  snapshotSha256: string;
+  excludes: string[];
+  appVersion: string;
+}
+
+export interface BackupOutcome {
+  directory: string;
+  snapshotBytes: number;
+  manifest: BackupManifest;
+}
+
+function parseManifest(value: unknown, at: string): BackupManifest {
+  const row = asRecord(value, at);
+  return {
+    manifestVersion: asInteger(row, at, "manifestVersion"),
+    storageSchemaVersion: asInteger(row, at, "storageSchemaVersion"),
+    kbSchemaVersion: asInteger(row, at, "kbSchemaVersion"),
+    deviceId: asString(row, at, "deviceId"),
+    generation: asInteger(row, at, "generation"),
+    createdAt: asInteger(row, at, "createdAt"),
+    snapshotBytes: asInteger(row, at, "snapshotBytes"),
+    snapshotSha256: asString(row, at, "snapshotSha256"),
+    excludes: mapArray(row["excludes"], `${at}.excludes`, (entry, entryAt) => {
+      if (typeof entry !== "string") {
+        throw new Error(`${entryAt} should be a string.`);
+      }
+      return entry;
+    }),
+    appVersion: asString(row, at, "appVersion"),
+  };
+}
+
+export async function backupNow(directory: string): Promise<BackupOutcome> {
+  const raw = await invoke<unknown>("backup_now", { directory });
+  const at = "backup_now";
+  const row = asRecord(raw, at);
+  return {
+    directory: asString(row, at, "directory"),
+    snapshotBytes: asInteger(row, at, "snapshotBytes"),
+    manifest: parseManifest(row["manifest"], `${at}.manifest`),
+  };
+}
+
+/** Validates now, applies at the next launch. Throws if the folder is wrong. */
+export async function restoreRequest(
+  directory: string,
+): Promise<BackupManifest> {
+  const raw = await invoke<unknown>("restore_request", { directory });
+  return parseManifest(raw, "restore_request");
+}
+
+export async function restoreCancel(): Promise<void> {
+  await invoke("restore_cancel");
+}
+
+export async function restorePending(): Promise<string | null> {
+  const raw = await invoke<unknown>("restore_pending");
+  if (raw === null || raw === undefined) return null;
+  if (typeof raw !== "string") {
+    throw new Error("restore_pending should return a path or null.");
+  }
+  return raw;
+}
+
+/** What the last startup's restore did, if one ran. */
+export async function restoreReport(): Promise<string | null> {
+  const raw = await invoke<unknown>("restore_report");
+  if (raw === null || raw === undefined) return null;
+  if (typeof raw !== "string") {
+    throw new Error("restore_report should return a message or null.");
+  }
+  return raw.length > 0 ? raw : null;
+}
+
+export async function restoreReportClear(): Promise<void> {
+  await invoke("restore_report_clear");
+}

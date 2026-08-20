@@ -358,6 +358,12 @@ impl KnowledgeBase {
         Self::prepare(Connection::open_with_flags(path, flags)?, Backing::File)
     }
 
+    /// The knowledge-base schema version this build understands, for a
+    /// snapshot's manifest.
+    pub fn schema_version() -> i32 {
+        schema::KB_SCHEMA_VERSION
+    }
+
     /// Open a knowledge base that never touches the disk. For tests, and for
     /// any future "answer from these documents but remember nothing" mode.
     pub fn open_in_memory() -> Result<Self, RagError> {

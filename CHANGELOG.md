@@ -29,6 +29,15 @@ version is `0.y.z`, anything may change between releases.
 
 ### Added
 
+- Backup and restore. One file holds everything — history, documents, embeddings, meetings —
+  and it is taken with `VACUUM INTO` while Skia keeps running, so a backup is never a
+  half-written copy missing its most recent work. A manifest beside it records the schema
+  versions, a checksum, and what is deliberately *not* included: API keys stay in the OS
+  keychain and must be re-entered after restoring on a new machine. Restoring validates the
+  folder the moment you pick it, then applies at the next launch when nothing holds the
+  database open; your previous data is moved aside rather than deleted, and a queued restore
+  can be cancelled until then. A backup from a newer version of Skia, or a damaged one, is
+  refused before anything is replaced.
 - The overlay is a non-activating panel on macOS, which closes the two limitations it has
   shipped with: the dock icon can now be hidden, and the overlay no longer takes focus when it
   opens. It is ordered on screen before the app is demoted, and the dock icon is only hidden
