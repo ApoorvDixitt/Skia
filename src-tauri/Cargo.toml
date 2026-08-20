@@ -49,13 +49,30 @@ keyring = "4"
 
 # Content hashing for incremental re-indexing of knowledge-base files.
 sha2 = "0.10"
+
+# Audio capture: microphone via cpal, resampled to the 16 kHz mono every
+# transcription backend expects.
 cpal = "0.18.2"
 rubato = "5.0.0"
 
-# Deliberately NOT depending on objc2 or the windows crate. Tauri already
-# implements capture protection natively -- set_content_protected maps to
-# NSWindow.sharingType = .none on macOS and SetWindowDisplayAffinity with
-# WDA_EXCLUDEFROMCAPTURE on Windows, which are exactly the mechanisms measured
-# in tools/macos-capture-harness. Hand-rolling that would add unsafe code for
-# no benefit.
+# For capture *protection*, still deliberately NOT hand-rolling native code:
+# Tauri's set_content_protected maps to NSWindow.sharingType = .none on macOS
+# and SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE) on Windows, exactly the
+# mechanisms measured in tools/macos-capture-harness.
+#
+# objc2 earns its place for one thing that has no safe wrapper: microphone
+# consent. cpal reaches the mic through the CoreAudio HAL, which never shows
+# the permission dialog on its own -- macOS delivers silence until
+# AVCaptureDevice.requestAccess is called (measured: a shipped build recorded
+# five seconds of exact zeros, prompt-free). See src/audio/consent.rs, the
+# crate's only unsafe code.
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6.2"
+objc2 = "0.6.4"
+objc2-av-foundation = { version = "0.3.2", default-features = false, features = [
+  "AVCaptureDevice",
+  "AVMediaFormat",
+  "block2",
+  "std",
+] }
 

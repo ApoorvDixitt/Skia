@@ -57,6 +57,56 @@ guard #available(macOS 14.2, *) else {
     exit(1)
 }
 
+// MARK: - Consent, requested explicitly
+//
+// Measured the hard way: creating and pulling a tap never triggers the consent
+// dialog by itself — capture without a grant succeeds and returns zeros. The
+// same day, the same shape bit Skia's own microphone path, where Apple's docs
+// spell out that only creating an `AVCaptureDeviceInput` auto-prompts. Nothing
+// in this probe does, so consent has to be requested here, explicitly.
+//
+// For kTCCServiceAudioCapture there is no public request API at all; the TCC
+// SPI is the only route, exactly as AudioCap documents. Private API is
+// tolerable in a diagnostic tool that is re-run per OS release and shipped
+// nowhere.
+
+typealias TCCPreflightFn = @convention(c) (CFString, CFDictionary?) -> Int
+typealias TCCRequestFn = @convention(c) (CFString, CFDictionary?, @escaping (Bool) -> Void) -> Void
+
+/// Check, and if never asked, ask for the audio-capture grant. Returns whether
+/// capture can be expected to carry audio — and says so either way, because a
+/// probe that records zeros without explaining why is the trap this harness
+/// exists to expose.
+func ensureAudioCaptureConsent() -> Bool {
+    guard
+        let handle = dlopen("/System/Library/PrivateFrameworks/TCC.framework/Versions/A/TCC", RTLD_NOW),
+        let preflightSymbol = dlsym(handle, "TCCAccessPreflight"),
+        let requestSymbol = dlsym(handle, "TCCAccessRequest")
+    else {
+        print("audio-capture consent      TCC SPI unavailable — capture may be silent")
+        return false
+    }
+    let preflight = unsafeBitCast(preflightSymbol, to: TCCPreflightFn.self)
+    if preflight("kTCCServiceAudioCapture" as CFString, nil) == 0 {
+        print("audio-capture consent      already authorized")
+        return true
+    }
+
+    print("audio-capture consent      requesting — answer the dialog if one appears…")
+    let request = unsafeBitCast(requestSymbol, to: TCCRequestFn.self)
+    let semaphore = DispatchSemaphore(value: 0)
+    var granted = false
+    request("kTCCServiceAudioCapture" as CFString, nil) { ok in
+        granted = ok
+        semaphore.signal()
+    }
+    _ = semaphore.wait(timeout: .now() + 300)
+    print("audio-capture consent      \(granted ? "granted" : "NOT granted — expect zeros below")")
+    return granted
+}
+
+_ = ensureAudioCaptureConsent()
+
 // MARK: - Core Audio helpers
 
 func property<T>(_ object: AudioObjectID, _ selector: AudioObjectPropertySelector) -> T? {

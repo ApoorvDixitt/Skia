@@ -740,9 +740,22 @@ fn audio_status(state: tauri::State<'_, AppState>) -> Result<audio::AudioStatus,
     state.audio.status().map_err(|e| e.to_string())
 }
 
+/// Async over a blocking task because the first call ever may put the OS
+/// microphone-consent dialog on screen and wait minutes for a human. The
+/// consent step is load-bearing, not politeness: cpal reaches the microphone
+/// through the CoreAudio HAL, which never triggers the dialog on its own —
+/// macOS just delivers silence until someone asks. See `audio::consent`.
 #[tauri::command]
-fn audio_meter_start(state: tauri::State<'_, AppState>) -> Result<audio::AudioStatus, String> {
-    state.audio.meter_start().map_err(|e| e.to_string())
+async fn audio_meter_start(
+    state: tauri::State<'_, AppState>,
+) -> Result<audio::AudioStatus, String> {
+    let handle = state.audio.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        audio::ensure_microphone().map_err(|e| e.to_string())?;
+        handle.meter_start().map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -774,6 +787,8 @@ async fn audio_probe(
 
     let handle = state.audio.clone();
     tauri::async_runtime::spawn_blocking(move || {
+        // Same consent gate as the meter: without it this records silence.
+        audio::ensure_microphone().map_err(|e| e.to_string())?;
         handle
             .probe(seconds.unwrap_or(5.0), path)
             .map_err(|e| e.to_string())

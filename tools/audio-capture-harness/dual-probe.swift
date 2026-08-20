@@ -35,6 +35,74 @@ guard #available(macOS 14.2, *) else {
     exit(1)
 }
 
+// MARK: - Consent, requested explicitly for both streams
+//
+// Neither stream triggers a consent dialog on its own — measured, not assumed.
+// The tap vends zeros without the audio-capture grant, and AVAudioEngine's
+// input reaches the mic through the HAL, which per Apple's own documentation
+// only auto-prompts when an `AVCaptureDeviceInput` is created (this probe
+// creates none). A leak measurement over two silent streams would correlate
+// perfectly and mean nothing, so both grants are secured — or their absence
+// reported — before anything is captured.
+
+/// Microphone consent has a public API; use it.
+func ensureMicConsent() -> Bool {
+    switch AVCaptureDevice.authorizationStatus(for: .audio) {
+    case .authorized:
+        print("microphone consent         already authorized")
+        return true
+    case .notDetermined:
+        print("microphone consent         requesting — answer the dialog…")
+        let semaphore = DispatchSemaphore(value: 0)
+        var granted = false
+        AVCaptureDevice.requestAccess(for: .audio) { ok in
+            granted = ok
+            semaphore.signal()
+        }
+        _ = semaphore.wait(timeout: .now() + 300)
+        print("microphone consent         \(granted ? "granted" : "DENIED — the mic track will be zeros")")
+        return granted
+    default:
+        print("microphone consent         DENIED — grant it in System Settings and re-run")
+        return false
+    }
+}
+
+/// Audio-capture consent has no public request API; the TCC SPI is the only
+/// route, as AudioCap documents. Diagnostic-tool-only code.
+typealias TCCPreflightFn = @convention(c) (CFString, CFDictionary?) -> Int
+typealias TCCRequestFn = @convention(c) (CFString, CFDictionary?, @escaping (Bool) -> Void) -> Void
+
+func ensureAudioCaptureConsent() -> Bool {
+    guard
+        let handle = dlopen("/System/Library/PrivateFrameworks/TCC.framework/Versions/A/TCC", RTLD_NOW),
+        let preflightSymbol = dlsym(handle, "TCCAccessPreflight"),
+        let requestSymbol = dlsym(handle, "TCCAccessRequest")
+    else {
+        print("audio-capture consent      TCC SPI unavailable — far end may be silent")
+        return false
+    }
+    let preflight = unsafeBitCast(preflightSymbol, to: TCCPreflightFn.self)
+    if preflight("kTCCServiceAudioCapture" as CFString, nil) == 0 {
+        print("audio-capture consent      already authorized")
+        return true
+    }
+    print("audio-capture consent      requesting — answer the dialog if one appears…")
+    let request = unsafeBitCast(requestSymbol, to: TCCRequestFn.self)
+    let semaphore = DispatchSemaphore(value: 0)
+    var granted = false
+    request("kTCCServiceAudioCapture" as CFString, nil) { ok in
+        granted = ok
+        semaphore.signal()
+    }
+    _ = semaphore.wait(timeout: .now() + 300)
+    print("audio-capture consent      \(granted ? "granted" : "NOT granted — the far end will be zeros")")
+    return granted
+}
+
+_ = ensureMicConsent()
+_ = ensureAudioCaptureConsent()
+
 // MARK: - Core Audio helpers
 
 func stringProperty(_ object: AudioObjectID, _ selector: AudioObjectPropertySelector) -> String? {

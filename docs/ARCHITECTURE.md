@@ -195,3 +195,13 @@ public API to check the grant, and the prompt only exists for a bundle carrying
 `NSAudioCaptureUsageDescription`. So Skia's Info.plist needs that key, and the audio engine has
 to treat all-zero input as a consent state and report it the way `stealth.rs` reports capture
 exclusion — what actually happened, never what was requested.
+
+The trap turned out to be wider than taps, and it bit the shipped microphone path: the first
+real build recorded five seconds of exact zeros, prompt-free, with the usage key correctly in
+place. **No consent dialog is ever triggered implicitly.** Apple's AVFoundation documentation
+confines the auto-prompt to `AVCaptureDeviceInput` creation; cpal reaches the microphone
+through the CoreAudio HAL, which *"will vend silent audio samples"* until access is granted.
+Consent is therefore requested explicitly before any stream opens — the microphone through the
+public `AVCaptureDevice.requestAccess` (see `audio/consent.rs`, the crate's only `unsafe`
+code), and the far end, when it lands, through the only route that exists for
+`kTCCServiceAudioCapture`, which is not public.

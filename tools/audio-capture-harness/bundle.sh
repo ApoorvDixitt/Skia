@@ -102,8 +102,10 @@ Run it directly so stdout still reaches this terminal:
 
   "$app/Contents/MacOS/probe" 10 --exclude-self
 
-The first capture should prompt for audio-capture permission. If no prompt
-appears and the audio is silent, check:
+The probe requests consent explicitly at startup and prints what it got.
+Capture never prompts by itself -- measured: it silently returns zeros
+instead -- so if the probe reports a grant was NOT given, believe it, and
+check:
 
   open "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
 
