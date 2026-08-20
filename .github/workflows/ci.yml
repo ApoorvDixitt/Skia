@@ -57,3 +57,11 @@ jobs:
 
       - name: Clippy
         run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --locked -- -D warnings
+
+      # Runs on both runners on purpose. Most of what these tests cover is
+      # platform-independent, but the ones that matter most here are not: the
+      # store and the knowledge base open real files, and path handling, SQLite
+      # WAL behaviour, and the keychain backend are exactly where macOS and
+      # Windows diverge.
+      - name: Test
+        run: cargo test --manifest-path src-tauri/Cargo.toml --all-targets --locked
