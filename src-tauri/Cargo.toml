@@ -85,4 +85,5 @@ objc2-av-foundation = { version = "0.3.2", default-features = false, features = 
   "block2",
   "std",
 ] }
+tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", branch = "v2", version = "2.0.1" }
 

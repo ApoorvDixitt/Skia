@@ -137,6 +137,8 @@ function parsePresence(value: unknown, at: string): Presence {
     noTaskbarEntry: asBoolean(source, at, "noTaskbarEntry"),
     noAltTab: asBoolean(source, at, "noAltTab"),
     neverStealsFocus: asBoolean(source, at, "neverStealsFocus"),
+    mechanism: asNullableString(source, at, "mechanism"),
+    support: asSupportLevel(source, at, "support"),
   };
 }
 

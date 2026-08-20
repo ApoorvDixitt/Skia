@@ -408,9 +408,24 @@ export function PresenceTier({ presence }: PresenceTierProps) {
       </header>
 
       <p className="st-detail">
-        Ordinary window configuration, not a capture trick — the same on every
-        OS. Reported for this window.
+        Ordinary window configuration, not a capture trick. Reported for this
+        window, from what actually took effect at launch.
       </p>
+
+      {/* The mechanism is shown, not just the verdict: two of these rows hang
+          off a macOS panel conversion, and "no dock icon" means nothing to
+          audit unless the reader can see what produced it. */}
+      {presence.mechanism === null ? null : (
+        <p className="st-detail">
+          Dock icon and focus come from{" "}
+          <code className="measured" data-selectable="">
+            {presence.mechanism}
+          </code>
+          {presence.support === "measured"
+            ? " — documented AppKit, but that this overlay stays on screen under it is measured, not promised. Re-check after a macOS update."
+            : "."}
+        </p>
+      )}
 
       <ul className="st-presence-list">
         {rows.map((row) => (

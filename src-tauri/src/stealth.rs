@@ -20,6 +20,8 @@
 use serde::{Deserialize, Serialize};
 use tauri::{Runtime, WebviewWindow};
 
+use crate::panel;
+
 /// How much the platform vendor actually stands behind a mechanism.
 ///
 /// The distinction between `Documented` and `Measured` is the whole point: one
@@ -60,6 +62,14 @@ pub struct Presence {
     pub no_taskbar_entry: bool,
     pub no_alt_tab: bool,
     pub never_steals_focus: bool,
+    /// The macOS mechanism behind the two fields above, when one is in play.
+    /// `None` off macOS, where neither question arises the same way.
+    pub mechanism: Option<String>,
+    /// How much the two panel-dependent claims can be relied on. `Measured`
+    /// even when applied: the panel is documented AppKit, but *this app's
+    /// overlay staying visible under it* is an observation, and the previous
+    /// approach failed exactly there.
+    pub support: SupportLevel,
 }
 
 /// The full honest picture, shaped for display without further interpretation.
@@ -115,7 +125,7 @@ fn capture_mechanism() -> (Option<&'static str>, SupportLevel, &'static str) {
     }
 }
 
-fn caveats(active: bool, requested: bool) -> Vec<String> {
+fn caveats(active: bool, requested: bool, presence: &Presence) -> Vec<String> {
     let mut out = vec![
         "Other applications can still see that this window exists, along with the process \
          that owns it and its size and position. Only the pixels are withheld."
@@ -123,16 +133,31 @@ fn caveats(active: bool, requested: bool) -> Vec<String> {
         "No user-space application can defend against device management, kernel-level \
          monitoring, or a camera pointed at your screen."
             .to_string(),
-        "The overlay takes focus once when it opens. A window that never activates needs a \
-         non-activating panel, which is not built yet."
-            .to_string(),
     ];
 
-    if cfg!(target_os = "macos") {
+    // These two were unconditional while both were permanently false. They are
+    // now conditional on what the panel conversion achieved, because stating a
+    // limitation that no longer exists is its own kind of dishonesty.
+    if !presence.never_steals_focus {
         out.push(
-            "On macOS the app still shows a dock icon. Hiding it currently makes the overlay \
-             itself invisible, so it is left visible on purpose until a non-activating panel \
-             is built."
+            "The overlay takes focus once when it opens, because it is not running as a \
+             non-activating panel on this system."
+                .to_string(),
+        );
+    }
+    if cfg!(target_os = "macos") && !presence.no_dock_icon {
+        out.push(
+            "On macOS the app still shows a dock icon. It is hidden only once the overlay is \
+             confirmed on screen as a panel, because hiding it while the overlay is invisible \
+             is the worse failure."
+                .to_string(),
+        );
+    }
+    if cfg!(target_os = "macos") && presence.never_steals_focus {
+        out.push(
+            "The overlay is a non-activating panel, which is documented AppKit — but that this \
+             app's overlay stays reliably on screen under it is an observation, not a promise. \
+             Re-check it after a macOS update, the same way capture exclusion is re-checked."
                 .to_string(),
         );
     }
@@ -169,35 +194,53 @@ fn apply_presence<R: Runtime>(window: &WebviewWindow<R>) -> Result<Presence, Ste
     // Deliberately NOT calling set_focusable(false). That would permanently
     // prevent keyboard focus, which breaks any text input the overlay needs.
 
+    // Read what the panel conversion actually achieved rather than assuming.
+    // Both macOS claims below hang off it, and it records calls that either
+    // happened or did not — see `panel.rs`.
+    let panel = panel::outcome();
+
     Ok(Presence {
-        // False on macOS, and measured rather than assumed. Hiding the dock icon
-        // needs ActivationPolicy::Accessory, and every ordering of that call was
-        // measured to leave the overlay invisible — see the RunEvent::Ready
-        // handler in `lib.rs`. A non-activating NSPanel is the real fix; until
-        // then the dock icon stays and this is reported honestly.
-        //
-        // Windows has no dock, so the question does not arise there.
-        no_dock_icon: !cfg!(target_os = "macos"),
+        // On macOS this is exactly "the app is accessory", which `panel.rs`
+        // only applies once the panel is confirmed on screen — hiding the dock
+        // icon while the overlay is invisible was the measured 0/5 failure and
+        // must never be reachable. Windows has no dock, so the question does
+        // not arise there.
+        no_dock_icon: if cfg!(target_os = "macos") {
+            panel.accessory_policy
+        } else {
+            true
+        },
         no_taskbar_entry: true,
         // A skip-taskbar window with no dock icon is not offered in the window
         // switcher on either platform.
         no_alt_tab: true,
-        // Reported false because it is false, and this is measured rather than
-        // assumed. The window is created with `"focus": true`, so it activates
-        // once at launch.
-        //
-        // It is not an oversight. With `"focus": false` AND an accessory
-        // activation policy, nothing ever calls `makeKeyAndOrderFront`: the
-        // window is created with correct geometry but is never ordered onto the
-        // screen, and an explicit `show()` does not rescue it. Confirmed via
-        // `SCShareableContent`, which reported the window as `onScreen=false`
-        // while `CGWindowListCopyWindowInfo` still listed it with the right
-        // bounds. An invisible overlay is worse than one that takes focus once.
-        //
-        // Having both requires a genuinely non-activating window — an NSPanel
-        // with `.nonactivatingPanel` (`tauri-nspanel`), as the TRD anticipated.
-        // Until then this claim stays false.
-        never_steals_focus: false,
+        // True only with a genuinely non-activating panel. An ordinary window
+        // is ordered front by activating the app, which is the focus steal
+        // this claim is about; `NSWindowStyleMaskNonactivatingPanel` plus
+        // `orderFrontRegardless` is what removes it.
+        never_steals_focus: if cfg!(target_os = "macos") {
+            panel.non_activating
+        } else {
+            // The Windows overlay is created skip-taskbar and never activates
+            // the app to show itself.
+            true
+        },
+        mechanism: if cfg!(target_os = "macos") {
+            Some(if panel.non_activating {
+                "NSPanel with NSWindowStyleMaskNonactivatingPanel, becomesKeyOnlyIfNeeded, \
+                 and ActivationPolicy::Accessory"
+                    .to_string()
+            } else {
+                "ordinary NSWindow — the panel conversion did not take effect".to_string()
+            })
+        } else {
+            None
+        },
+        support: if cfg!(target_os = "macos") {
+            SupportLevel::Measured
+        } else {
+            SupportLevel::Documented
+        },
     })
 }
 
@@ -239,9 +282,9 @@ pub fn apply<R: Runtime>(
             support,
             guarantee: guarantee.to_string(),
         },
-        presence,
         window_enumerable: true,
-        caveats: caveats(active, requested),
+        caveats: caveats(active, requested, &presence),
+        presence,
     })
 }
 
@@ -285,16 +328,44 @@ mod tests {
         }
     }
 
+    /// A presence with the panel applied, as macOS reports it when the
+    /// conversion worked.
+    fn with_panel() -> Presence {
+        Presence {
+            no_dock_icon: true,
+            no_taskbar_entry: true,
+            no_alt_tab: true,
+            never_steals_focus: true,
+            mechanism: Some("NSPanel".to_string()),
+            support: SupportLevel::Measured,
+        }
+    }
+
+    /// A presence with the conversion having failed — the state the overlay
+    /// shipped in before the panel landed.
+    fn without_panel() -> Presence {
+        Presence {
+            no_dock_icon: false,
+            no_taskbar_entry: true,
+            no_alt_tab: true,
+            never_steals_focus: false,
+            mechanism: Some("ordinary NSWindow".to_string()),
+            support: SupportLevel::Measured,
+        }
+    }
+
     #[test]
     fn caveats_always_mention_that_presence_is_not_hidden() {
-        let c = caveats(true, true);
-        assert!(c.iter().any(|s| s.contains("this window exists")));
-        assert!(c.iter().any(|s| s.contains("Only the pixels are withheld")));
+        for presence in [with_panel(), without_panel()] {
+            let c = caveats(true, true, &presence);
+            assert!(c.iter().any(|s| s.contains("this window exists")));
+            assert!(c.iter().any(|s| s.contains("Only the pixels are withheld")));
+        }
     }
 
     #[test]
     fn requesting_exclusion_without_getting_it_is_stated_plainly() {
-        let c = caveats(false, true);
+        let c = caveats(false, true, &with_panel());
         assert!(
             c.iter()
                 .any(|s| s.contains("Assume the overlay is visible")),
@@ -303,22 +374,42 @@ mod tests {
     }
 
     #[test]
-    fn the_focus_limitation_is_always_disclosed() {
-        // The overlay activates once on open. If someone later makes it a true
-        // non-activating panel, this caveat should go — but it must never be
-        // dropped while the behaviour is still there.
+    fn the_focus_and_dock_limitations_are_disclosed_exactly_when_they_apply() {
+        // Without the panel, both limitations are real and must be stated.
+        let broken = without_panel();
         for (active, requested) in [(true, true), (false, false), (false, true)] {
-            let c = caveats(active, requested);
+            let c = caveats(active, requested, &broken);
             assert!(
                 c.iter().any(|s| s.contains("takes focus once")),
-                "the focus limitation must always be disclosed: {c:?}"
+                "the focus limitation must be disclosed while it is real: {c:?}"
+            );
+            if cfg!(target_os = "macos") {
+                assert!(
+                    c.iter().any(|s| s.contains("dock icon")),
+                    "the dock limitation must be disclosed while it is real: {c:?}"
+                );
+            }
+        }
+
+        // With the panel, stating them would be false — and the replacement
+        // caveat about re-verification must appear instead.
+        let fixed = with_panel();
+        let c = caveats(true, true, &fixed);
+        assert!(
+            !c.iter().any(|s| s.contains("takes focus once")),
+            "a limitation that no longer exists must not be claimed: {c:?}"
+        );
+        if cfg!(target_os = "macos") {
+            assert!(
+                c.iter().any(|s| s.contains("not a promise")),
+                "the panel's measured-not-guaranteed status must still be stated: {c:?}"
             );
         }
     }
 
     #[test]
     fn no_spurious_failure_warning_when_exclusion_was_not_requested() {
-        let c = caveats(false, false);
+        let c = caveats(false, false, &with_panel());
         assert!(!c
             .iter()
             .any(|s| s.contains("Assume the overlay is visible")));

@@ -44,6 +44,18 @@ export interface Presence {
   noTaskbarEntry: boolean;
   noAltTab: boolean;
   neverStealsFocus: boolean;
+  /**
+   * The native mechanism behind `noDockIcon` and `neverStealsFocus` on macOS,
+   * so the claim is auditable rather than asserted. `null` off macOS.
+   */
+  mechanism: string | null;
+  /**
+   * How far the two panel-dependent claims can be trusted. `measured` on
+   * macOS even when applied: NSPanel is documented AppKit, but this overlay
+   * staying on screen under it is an observation — the previous approach
+   * failed exactly there.
+   */
+  support: SupportLevel;
 }
 
 export interface StealthStatus {
