@@ -29,6 +29,14 @@ version is `0.y.z`, anything may change between releases.
 
 ### Added
 
+- Meetings become memory. A new Meetings section starts a meeting with a title, profile and
+  attendees, and shows a pre-meeting brief the moment it starts: prior meetings with these
+  people and their still-open action items, assembled from data with no model call — facts
+  must not wait on a provider. Notes typed during a meeting go through the transcript
+  pipeline itself (append-only windows in the knowledge base, exact offsets, citable), and a
+  meeting's transcript is retrievable from that meeting alone: a generic Ask never quotes a
+  private meeting. People are recognised across meetings by email; commitments survive the
+  deletion of a contact, unassigned rather than erased. Export and purge cover it all.
 - Retrieval understands meaning, not just words. A semantic index can be enabled in the
   Knowledge base section against any provider with an embeddings endpoint — Ollama runs it
   free and local, OpenAI and Gemini work with the key already in the keychain — and keyword

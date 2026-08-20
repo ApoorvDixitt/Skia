@@ -17,7 +17,7 @@ use rusqlite::Connection;
 use super::StoreError;
 
 /// Highest schema version this build understands.
-pub(super) const SCHEMA_VERSION: i32 = 1;
+pub(super) const SCHEMA_VERSION: i32 = 2;
 
 /// One forward step, applied when the database is older than `version`.
 struct Migration {
@@ -28,10 +28,16 @@ struct Migration {
 }
 
 /// Every migration, oldest first. Append only; never edit a shipped entry.
-const MIGRATIONS: &[Migration] = &[Migration {
-    version: 1,
-    sql: V1_INITIAL,
-}];
+const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        sql: V1_INITIAL,
+    },
+    Migration {
+        version: 2,
+        sql: V2_MEETINGS,
+    },
+];
 
 /// The initial schema: settings, sessions, messages, and the FTS5 index.
 ///
@@ -95,6 +101,66 @@ CREATE TRIGGER messages_fts_update AFTER UPDATE ON messages BEGIN
     VALUES ('delete', old.id, old.content);
     INSERT INTO messages_fts (rowid, content) VALUES (new.id, new.content);
 END;
+";
+
+/// Meeting memory: who was met, when, and what was agreed.
+///
+/// This is the schema behind "what did I promise these people last time" —
+/// the pre-meeting brief joins `meeting_people` on shared attendees and pulls
+/// their open `action_items`. Design choices that matter:
+///
+/// - `people.email` is `UNIQUE` but nullable: an email is the only identity
+///   that survives a rename, but a person typed in by hand may not have one,
+///   and two email-less "Alex"es must both be storable.
+/// - `action_items.person_id` is `ON DELETE SET NULL`, not `CASCADE`:
+///   deleting a person must not silently delete what was agreed in a meeting
+///   — the commitment stays, unassigned.
+/// - `meetings.profile` is free text like `sessions.mode`: adding a profile
+///   must not need a migration.
+/// - Transcripts are deliberately NOT here. They live in the knowledge base
+///   as append-only chunk windows, where retrieval and citations already
+///   work; a meeting row carries only the identity those chunks are tagged
+///   with.
+const V2_MEETINGS: &str = "
+CREATE TABLE people (
+    id    INTEGER NOT NULL PRIMARY KEY,
+    name  TEXT    NOT NULL CHECK (name <> ''),
+    email TEXT    UNIQUE CHECK (email IS NULL OR email <> ''),
+    notes TEXT
+) STRICT;
+
+CREATE TABLE meetings (
+    id          INTEGER NOT NULL PRIMARY KEY,
+    title       TEXT,
+    -- The prompt profile the meeting ran under (general, interview, ...).
+    profile     TEXT    NOT NULL CHECK (profile <> ''),
+    started_at  INTEGER NOT NULL DEFAULT (unixepoch()),
+    ended_at    INTEGER,
+    -- Reserved for calendar integration; carries the external event id.
+    calendar_id TEXT
+) STRICT;
+
+CREATE INDEX meetings_by_start ON meetings (started_at DESC, id DESC);
+
+CREATE TABLE meeting_people (
+    meeting_id INTEGER NOT NULL REFERENCES meetings (id) ON DELETE CASCADE,
+    person_id  INTEGER NOT NULL REFERENCES people (id) ON DELETE CASCADE,
+    role       TEXT,
+    PRIMARY KEY (meeting_id, person_id)
+) STRICT;
+
+CREATE INDEX meeting_people_by_person ON meeting_people (person_id);
+
+CREATE TABLE action_items (
+    id         INTEGER NOT NULL PRIMARY KEY,
+    meeting_id INTEGER NOT NULL REFERENCES meetings (id) ON DELETE CASCADE,
+    person_id  INTEGER REFERENCES people (id) ON DELETE SET NULL,
+    text       TEXT    NOT NULL CHECK (text <> ''),
+    done       INTEGER NOT NULL DEFAULT 0 CHECK (done IN (0, 1)),
+    created_at INTEGER NOT NULL DEFAULT (unixepoch())
+) STRICT;
+
+CREATE INDEX action_items_by_meeting ON action_items (meeting_id);
 ";
 
 /// Fail loudly if this SQLite build has no FTS5 module.

@@ -855,3 +855,88 @@
   flex-wrap: wrap;
   gap: 8px;
 }
+
+/* ---------------------------------------------------------- meetings ---- */
+
+.mt-block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.mt-block:last-child {
+  border-bottom: none;
+}
+
+.mt-block[data-tone="brief"] {
+  padding: 12px;
+  border: 1px solid var(--amber-line);
+  border-radius: var(--r-sm);
+  background-color: var(--amber-soft);
+}
+
+.mt-form {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.mt-input {
+  flex: 1;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: var(--t-base);
+  color: var(--text);
+  background: var(--sunken);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+
+.mt-select {
+  flex: 0 1 auto;
+}
+
+.mt-brief-label {
+  margin: 4px 0 0;
+}
+
+.mt-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+}
+
+.mt-list-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 2px;
+  border-bottom: 1px solid var(--line);
+  font-size: var(--t-base);
+}
+
+.mt-list-row:last-child {
+  border-bottom: none;
+}
+
+.mt-list-meta {
+  font-size: var(--t-sm);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.mt-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mt-check span[data-done="true"] {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}

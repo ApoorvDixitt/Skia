@@ -704,6 +704,11 @@ impl KnowledgeBase {
     }
 
     /// The BM25 arm: the best `take` chunks whose words match.
+    ///
+    /// Transcripts are excluded here (and in the vector arm) on purpose: a
+    /// generic Ask must not quote a private meeting unprompted. Meeting modes
+    /// reach transcripts through [`Self::retrieve_meeting`], which scopes to
+    /// one meeting the caller names.
     fn keyword_arm(&self, query: &str, take: usize) -> Result<Vec<RetrievedChunk>, RagError> {
         // Nothing the tokenizer would index, e.g. "???". An empty result is the
         // honest answer, and FTS5 does not define what an empty MATCH
@@ -718,7 +723,7 @@ impl KnowledgeBase {
                FROM kb_chunks_fts
                JOIN kb_chunks c ON c.id = kb_chunks_fts.rowid
                JOIN kb_documents d ON d.id = c.document_id
-              WHERE kb_chunks_fts MATCH ?1
+              WHERE kb_chunks_fts MATCH ?1 AND d.format <> 'transcript'
               ORDER BY rank, c.document_id, c.ordinal
               LIMIT ?2",
         )?;
@@ -771,6 +776,149 @@ impl KnowledgeBase {
             )
             .optional()?;
         Ok(row)
+    }
+
+    // -------------------------------------------------------- transcripts ----
+
+    /// The knowledge-base path a meeting's transcript lives under.
+    pub fn transcript_path(meeting_id: i64) -> String {
+        format!("meeting://{meeting_id}")
+    }
+
+    /// Append one finalized transcript window to a meeting's document.
+    ///
+    /// This is the ingest path the file-hash pipeline cannot be: a live
+    /// transcript grows every few seconds, and re-chunking the whole document
+    /// per utterance would re-embed an entire meeting for every sentence
+    /// spoken. So the document is append-only — the window's bytes go on the
+    /// end of the stored text and exactly one new chunk points at them, with
+    /// every earlier chunk (and its embedding) untouched. `label` becomes the
+    /// chunk's section, which is where a citation shows the speaker and time.
+    ///
+    /// Returns the new chunk's id, which is stable forever after — the same
+    /// property the embedding work list keys on, so transcript windows get
+    /// embedded by the same pass documents do.
+    pub fn append_transcript_window(
+        &self,
+        meeting_id: i64,
+        label: Option<&str>,
+        window: &str,
+    ) -> Result<i64, RagError> {
+        let path = Self::transcript_path(meeting_id);
+        let window = window.trim();
+        if window.is_empty() {
+            return Err(RagError::NoText { path });
+        }
+
+        let tx = self.conn.unchecked_transaction()?;
+
+        let existing: Option<(i64, String)> = tx
+            .query_row(
+                "SELECT id, text FROM kb_documents WHERE path = ?1",
+                (&path,),
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+
+        let (document_id, new_text, start) = match existing {
+            Some((id, old_text)) => {
+                // A blank line before the window keeps the stored transcript
+                // readable and the chunker's paragraph convention intact if
+                // the document is ever re-processed.
+                let mut text = old_text;
+                text.push_str("\n\n");
+                let start = text.len();
+                text.push_str(window);
+                (id, text, start)
+            }
+            None => {
+                tx.execute(
+                    "INSERT INTO kb_documents
+                         (path, title, format, checksum, text, byte_len, indexed_at)
+                     VALUES (?1, ?2, 'transcript', ?3, '', 0, unixepoch())",
+                    (&path, format!("Meeting {meeting_id}"), checksum("")),
+                )?;
+                (tx.last_insert_rowid(), window.to_string(), 0)
+            }
+        };
+        let end = new_text.len();
+
+        tx.execute(
+            "UPDATE kb_documents
+                SET text = ?2, byte_len = ?3, checksum = ?4, indexed_at = unixepoch()
+              WHERE id = ?1",
+            (
+                document_id,
+                &new_text,
+                to_sql_integer(new_text.len())?,
+                checksum(&new_text),
+            ),
+        )?;
+
+        let ordinal: i64 = tx.query_row(
+            "SELECT COALESCE(MAX(ordinal) + 1, 0) FROM kb_chunks WHERE document_id = ?1",
+            (document_id,),
+            |row| row.get(0),
+        )?;
+        tx.execute(
+            "INSERT INTO kb_chunks
+                 (document_id, ordinal, section, start_offset, end_offset,
+                  token_count, text)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            (
+                document_id,
+                ordinal,
+                label,
+                to_sql_integer(start)?,
+                to_sql_integer(end)?,
+                to_sql_integer(window.split_whitespace().count().max(1))?,
+                window,
+            ),
+        )?;
+        let chunk_id = tx.last_insert_rowid();
+
+        tx.commit()?;
+        Ok(chunk_id)
+    }
+
+    /// Search one meeting's transcript. Keyword-only for now: this backs the
+    /// brief and the post-call views, which quote rather than reason.
+    pub fn retrieve_meeting(
+        &self,
+        meeting_id: i64,
+        query: &str,
+        limit: u32,
+    ) -> Result<Vec<RetrievedChunk>, RagError> {
+        let Some(expression) = fts5_match_expression(query) else {
+            return Ok(Vec::new());
+        };
+        let path = Self::transcript_path(meeting_id);
+        let mut statement = self.conn.prepare(
+            "SELECT c.id, c.document_id, d.path, c.section, c.text,
+                    c.start_offset, c.end_offset, kb_chunks_fts.rank
+               FROM kb_chunks_fts
+               JOIN kb_chunks c ON c.id = kb_chunks_fts.rowid
+               JOIN kb_documents d ON d.id = c.document_id
+              WHERE kb_chunks_fts MATCH ?1 AND d.path = ?2
+              ORDER BY rank, c.ordinal
+              LIMIT ?3",
+        )?;
+        let hits = statement
+            .query_map((&expression, &path, i64::from(limit)), |row| {
+                let rank: f64 = row.get(7)?;
+                Ok(RetrievedChunk {
+                    chunk_id: row.get(0)?,
+                    document_id: row.get(1)?,
+                    path: row.get(2)?,
+                    section: row.get(3)?,
+                    text: row.get(4)?,
+                    start_offset: usize_from(row, 5)?,
+                    end_offset: usize_from(row, 6)?,
+                    score: -rank,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<RetrievedChunk>>>()?;
+        Ok(hits)
     }
 
     // -------------------------------------------------------- embeddings ----
@@ -1770,6 +1918,82 @@ Le café éthiopien coûte 3 € la tasse.
             !kb.unembedded_chunks(MODEL, 100).unwrap().is_empty(),
             "the replaced document's chunks are back on the work list"
         );
+    }
+
+    // -------------------------------------------------------- transcripts ----
+
+    #[test]
+    fn transcript_windows_append_without_touching_earlier_chunks() {
+        let kb = KnowledgeBase::open_in_memory().unwrap();
+        let first = kb
+            .append_transcript_window(7, Some("Priya · 00:00"), "We agreed to ship Friday.")
+            .unwrap();
+        let second = kb
+            .append_transcript_window(7, Some("Apoorv · 00:45"), "Budget approval moves to Q4.")
+            .unwrap();
+        assert_ne!(first, second);
+
+        // The earlier chunk's citation still resolves after later appends —
+        // offsets are into a text that only ever grows.
+        let hits = kb.retrieve_meeting(7, "ship Friday", 5).unwrap();
+        let hit = hits.first().expect("the first window is findable");
+        assert_eq!(hit.chunk_id, first);
+        let citation = kb.resolve_citation(hit).unwrap();
+        assert_eq!(citation.passage, "We agreed to ship Friday.");
+        assert_eq!(citation.section.as_deref(), Some("Priya · 00:00"));
+
+        // And the appended one too, with its own exact offsets.
+        let hits = kb.retrieve_meeting(7, "budget approval", 5).unwrap();
+        let citation = kb.resolve_citation(&hits[0]).unwrap();
+        assert_eq!(citation.passage, "Budget approval moves to Q4.");
+    }
+
+    #[test]
+    fn general_retrieval_never_quotes_a_meeting_but_meeting_scope_does() {
+        let kb = KnowledgeBase::open_in_memory().unwrap();
+        kb.ingest_text("/kb/handbook.md", DocumentFormat::Markdown, HANDBOOK)
+            .unwrap();
+        kb.append_transcript_window(3, None, "The refund window moves to sixty days.")
+            .unwrap();
+
+        // "sixty" exists only in the meeting. Generic Ask must not find it.
+        assert!(
+            kb.retrieve("sixty days", 10).unwrap().is_empty(),
+            "a generic question must not surface a private meeting"
+        );
+        // Even through the vector arm.
+        let chunk = kb.retrieve_meeting(3, "sixty", 1).unwrap()[0].chunk_id;
+        kb.store_embedding(chunk, "m", &[1.0, 0.0]).unwrap();
+        assert!(
+            kb.retrieve_hybrid("sixty days", Some(("m", &[1.0, 0.0])), 10)
+                .unwrap()
+                .is_empty(),
+            "the vector arm must respect the same boundary"
+        );
+
+        // The meeting's own scope finds it.
+        assert_eq!(kb.retrieve_meeting(3, "sixty days", 5).unwrap().len(), 1);
+        // And other meetings do not.
+        assert!(kb.retrieve_meeting(4, "sixty days", 5).unwrap().is_empty());
+    }
+
+    #[test]
+    fn transcript_chunks_join_the_embedding_work_list() {
+        let kb = KnowledgeBase::open_in_memory().unwrap();
+        kb.append_transcript_window(1, None, "Ship the beta on Friday.")
+            .unwrap();
+        let pending = kb.unembedded_chunks("m", 10).unwrap();
+        assert_eq!(pending.len(), 1, "windows are embedded like any chunk");
+        assert!(pending[0].1.contains("beta"));
+    }
+
+    #[test]
+    fn an_empty_window_is_refused() {
+        let kb = KnowledgeBase::open_in_memory().unwrap();
+        assert!(matches!(
+            kb.append_transcript_window(1, None, "   "),
+            Err(RagError::NoText { .. })
+        ));
     }
 
     #[test]

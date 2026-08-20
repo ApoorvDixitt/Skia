@@ -50,6 +50,9 @@ pub enum DocumentFormat {
     Pdf,
     /// Paragraph text read from `word/document.xml`; offsets index it.
     Docx,
+    /// A live meeting's transcript, appended window by window — never read
+    /// from a file, so [`format_for_path`] can never return it.
+    Transcript,
 }
 
 impl DocumentFormat {
@@ -60,6 +63,7 @@ impl DocumentFormat {
             Self::Markdown => "markdown",
             Self::Pdf => "pdf",
             Self::Docx => "docx",
+            Self::Transcript => "transcript",
         }
     }
 
@@ -74,6 +78,7 @@ impl DocumentFormat {
             "markdown" => Ok(Self::Markdown),
             "pdf" => Ok(Self::Pdf),
             "docx" => Ok(Self::Docx),
+            "transcript" => Ok(Self::Transcript),
             other => Err(RagError::UnknownFormat {
                 format: other.to_owned(),
             }),
@@ -137,6 +142,14 @@ pub fn extract(path: &Path) -> Result<(DocumentFormat, String), RagError> {
         }
         DocumentFormat::Pdf => extract_pdf(&bytes, path)?,
         DocumentFormat::Docx => extract_docx(&bytes, path)?,
+        // Unreachable via format_for_path; named so a new call site cannot
+        // silently treat a transcript as a file.
+        DocumentFormat::Transcript => {
+            return Err(RagError::Unsupported {
+                extension: "transcript".to_string(),
+                reason: "transcripts are appended live, never read from a file",
+            })
+        }
     };
 
     Ok((format, text))
@@ -384,6 +397,7 @@ mod tests {
             DocumentFormat::Markdown,
             DocumentFormat::Pdf,
             DocumentFormat::Docx,
+            DocumentFormat::Transcript,
         ] {
             assert_eq!(
                 DocumentFormat::from_db_str(format.as_db_str()).unwrap(),
