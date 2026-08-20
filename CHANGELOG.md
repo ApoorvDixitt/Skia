@@ -29,6 +29,12 @@ version is `0.y.z`, anything may change between releases.
 
 ### Added
 
+- The overlay is a non-activating panel on macOS, which closes the two limitations it has
+  shipped with: the dock icon can now be hidden, and the overlay no longer takes focus when it
+  opens. It is ordered on screen before the app is demoted, and the dock icon is only hidden
+  once the panel confirms it is visible — hiding it while the overlay is invisible was the
+  failure this replaces. Typing into Ask keeps working, and the status panel now reports what
+  actually took effect, including the native mechanism behind it, instead of a fixed answer.
 - Meetings become memory. A new Meetings section starts a meeting with a title, profile and
   attendees, and shows a pre-meeting brief the moment it starts: prior meetings with these
   people and their still-open action items, assembled from data with no model call — facts

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 mod catalog;
+mod panel;
 mod stealth;
 
 pub mod audio;
@@ -1175,13 +1176,21 @@ fn toggle_overlay(window: &WebviewWindow) -> tauri::Result<()> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_dialog::init());
+
+    // The panel plugin owns the registry `to_panel` inserts into, so it has to
+    // be present before setup runs. macOS-only, because NSPanel is.
+    #[cfg(target_os = "macos")]
+    let builder = builder.plugin(tauri_nspanel::init());
+
+    builder
         .setup(|app| {
             // The macOS activation policy is deliberately NOT set here. See the
-            // RunEvent::Ready handler in `run()` — setting it this early stops the
-            // window from ever reaching the screen.
+            // RunEvent::Ready handler in `run()`: the overlay has to exist as a
+            // non-activating panel and be ordered front before the app may be
+            // demoted, and doing it this early was measured at 0/5 on screen.
             let dir = app.path().app_data_dir()?;
 
             // One file, both schemas. `storage` owns `PRAGMA user_version` and
@@ -1320,34 +1329,47 @@ pub fn run() {
             if matches!(event, tauri::RunEvent::Ready) {
                 match handle.get_webview_window(OVERLAY_LABEL) {
                     Some(window) => {
-                        if let Err(e) = window.show().and_then(|()| window.set_focus()) {
-                            eprintln!("skia: the overlay could not be brought on screen: {e}");
-                        }
-                        // NOT demoting to ActivationPolicy::Accessory here, and
-                        // not in `setup()` either. Both were measured, and both
-                        // cost the overlay its visibility:
+                        // Show first, convert second. The history here is
+                        // measured and worth keeping, because it is what makes
+                        // the ordering non-obvious:
                         //
-                        //   Accessory in setup()      → 0/5 launches on screen.
+                        //   Accessory in setup()             → 0/5 on screen.
                         //     tao applies the policy and then calls
-                        //     `activateIgnoringOtherApps` during launch, so the app
-                        //     has already opted out of activation by the time that
-                        //     runs, and the window is never ordered front.
-                        //   Accessory here, after show+focus → 0/5 on screen.
-                        //     Demoting an app whose window is already visible
-                        //     takes that window off the screen.
-                        //   No accessory policy → 5/5 on screen.
+                        //     `activateIgnoringOtherApps` during launch, so the
+                        //     app has already opted out of activation by the
+                        //     time that runs, and the window is never ordered
+                        //     front.
+                        //   Accessory after show+focus       → 0/5 on screen.
+                        //     Demoting an app whose ordinary window is already
+                        //     visible takes that window off the screen.
+                        //   No accessory policy              → 5/5 on screen.
                         //
-                        // In every failing case `CGWindowListCopyWindowInfo` still
-                        // listed the window with correct bounds while
-                        // `SCShareableContent` reported `onScreen=false`, i.e. it
-                        // existed and was invisible — the worst outcome for an
+                        // In both failing cases `CGWindowListCopyWindowInfo`
+                        // still listed the window with correct bounds while
+                        // `SCShareableContent` reported `onScreen=false` — it
+                        // existed and was invisible, the worst outcome for an
                         // overlay.
                         //
-                        // Hiding the dock icon and keeping an ordinary visible
-                        // window are genuinely in tension on macOS. The real fix is
-                        // a non-activating `NSPanel` (`tauri-nspanel`), which the
-                        // TRD anticipated. Until that lands, Skia keeps a dock icon
-                        // and `Presence::no_dock_icon` reports `false`.
+                        // The tension was never really "dock icon versus
+                        // visibility"; it was that an *ordinary* window can only
+                        // be ordered front by activating the app. A
+                        // non-activating `NSPanel` can be ordered front
+                        // regardless, so `panel::convert` orders it and only
+                        // then demotes the app — and only if the panel reports
+                        // itself on screen. See `panel.rs`.
+                        if let Err(e) = window.show() {
+                            eprintln!("skia: the overlay could not be brought on screen: {e}");
+                        }
+                        let outcome = panel::convert(&window);
+                        if !outcome.fully_applied() {
+                            // Not fatal: the app falls back to the previously
+                            // shipped behaviour, and `stealth.rs` reports it.
+                            // Focus is taken once here only in that fallback,
+                            // because an invisible overlay is worse.
+                            if let Err(e) = window.set_focus() {
+                                eprintln!("skia: the overlay could not take focus: {e}");
+                            }
+                        }
                     }
                     None => eprintln!("skia: no overlay window to show"),
                 }

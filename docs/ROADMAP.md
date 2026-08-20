@@ -39,15 +39,19 @@ and an update replaces the app cleanly.
 ## Phase 1 — minimum viable app
 
 - [~] Overlay window that never steals focus and has no dock, taskbar, or alt-tab presence (P0)
-      — always-on-top, visible on all workspaces, no taskbar entry on Windows, reliably visible
-      (5/5 cold launches). **Two parts are not done and are reported as such in-app:** on macOS
-      the dock icon is still shown, and the overlay takes focus once when it opens.
-      Both need a non-activating `NSPanel` — see below. Menu-bar/tray item not added yet.
-- [ ] Non-activating overlay panel via `tauri-nspanel` (P0) — the blocker for both remaining
-      Tier-B properties. An accessory activation policy is what hides the dock icon, but it was
-      measured to leave the window invisible in every ordering (0/5 launches on screen either at
-      startup or after showing; 5/5 without it). An `NSPanel` with `.nonactivatingPanel` is the
-      documented way to have a visible overlay that neither activates nor appears in the dock.
+      — always-on-top, visible on all workspaces, no taskbar entry on Windows. The dock icon
+      and the single focus steal are **addressed by the non-activating `NSPanel` below**; the
+      status panel now reports what actually took effect rather than a hardcoded `false`.
+      **Needs re-verifying on real hardware** across cold launches, and typing into Ask must
+      be confirmed working under `becomesKeyOnlyIfNeeded`. Menu-bar/tray item not added yet.
+- [~] Non-activating overlay panel via `tauri-nspanel` (P0) — **built**. The overlay is
+      converted to an `NSPanel` with `NSWindowStyleMaskNonactivatingPanel`, ordered front with
+      `orderFrontRegardless` (the call an ordinary window could not make work under an
+      accessory policy), and only then is the app demoted — and only if the panel reports
+      itself on screen, because hiding the dock icon while the overlay is invisible was the
+      measured 0/5 failure. `becomesKeyOnlyIfNeeded` keeps the Ask input typeable, which a
+      plain non-activating panel would have broken. **Unverified on hardware:** cold-launch
+      visibility and typing, both of which the status panel reports honestly meanwhile.
 - [x] Capture exclusion where the OS supports it, with in-app status that states what is
       actually active (P0) — verified end to end: the running app's overlay is absent from a
       ScreenCaptureKit capture while remaining enumerable, and the UI renders `documented`
