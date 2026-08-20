@@ -35,6 +35,13 @@
 use super::AudioError;
 
 /// What the OS says about microphone access, in Skia's terms.
+///
+/// Off macOS only [`MicConsent::Granted`] is ever constructed — the stub
+/// platform has nothing to ask — so the other variants are dead code there,
+/// and deliberately kept: they are the vocabulary of the one platform where
+/// consent is a state machine, and gating them out would put `cfg` noise at
+/// every use site.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MicConsent {
     /// Capture will deliver real audio.
