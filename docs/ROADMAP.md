@@ -90,9 +90,13 @@ answers, and a post-call summary with action items.
 
 ## Phase 3 — knowledge base
 
-- [~] Ingest PDF, DOCX, TXT, and Markdown with structure-aware chunking (P0) — **TXT and
-      Markdown done**, with heading-aware sections and exact byte offsets. PDF and DOCX return an
-      explicit `Unsupported` error rather than failing quietly; both need heavy parsers.
+- [x] Ingest PDF, DOCX, TXT, and Markdown with structure-aware chunking (P0) — TXT and
+      Markdown with heading-aware sections; PDF via `pdf-extract` behind a panic boundary
+      (the library crashes on some malformed files, and a corrupt document must refuse, not
+      take the app down); DOCX read directly from `word/document.xml` with a hand-rolled
+      zip+XML reader. Offsets for PDF/DOCX index the extracted text, which is what the
+      database stores and citations quote. A scanned PDF with no text layer is refused by
+      name. Legacy `.doc` stays refused with instructions.
 - [~] Local embeddings with incremental re-indexing on file change (P0) — **incremental
       re-indexing done** via SHA-256 per document (unchanged file is a no-op, changed file
       replaces only its own chunks). **No embeddings**: `bge-m3` is a multi-gigabyte download and

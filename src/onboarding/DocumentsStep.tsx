@@ -135,7 +135,9 @@ export function DocumentsStep({
     setPickError(null);
     void open({
       multiple: true,
-      filters: [{ name: "Text", extensions: ["txt", "md", "markdown"] }],
+      filters: [
+        { name: "Documents", extensions: ["txt", "md", "markdown", "pdf", "docx"] },
+      ],
     }).then(
       (picked) => {
         if (picked === null) {
@@ -220,12 +222,13 @@ export function DocumentsStep({
       ) : null}
 
       <p className="ob-hint">
-        Plain text and Markdown only (
-        <code className="measured">.txt</code>,{" "}
+        Text, Markdown, PDF and Word (<code className="measured">.txt</code>,{" "}
         <code className="measured">.md</code>,{" "}
-        <code className="measured">.markdown</code>). PDF and DOCX are refused
-        by design rather than half-read. Retrieval is keyword-only for now: a
-        question about “money back” will miss a note that only says “refund”.
+        <code className="measured">.pdf</code>,{" "}
+        <code className="measured">.docx</code>). A scanned PDF with no text
+        layer is refused rather than indexed as nothing. Retrieval is
+        keyword-only for now: a question about “money back” will miss a note
+        that only says “refund”.
       </p>
 
       {pickError === null ? null : (

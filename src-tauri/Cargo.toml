@@ -55,6 +55,16 @@ sha2 = "0.10"
 cpal = "0.18.2"
 rubato = "5.0.0"
 
+# Document parsers for the knowledge base. PDF text extraction is the one
+# problem in this codebase genuinely too big to hand-roll (fonts, encodings,
+# content streams), so it gets a dependency. DOCX does not: a .docx is a zip
+# holding XML, and the ~hundred lines in rag/parse.rs that read paragraph text
+# out of word/document.xml beat a full OOXML crate nobody has vetted. deflate
+# is the only zip feature needed — DOCX writers use nothing else.
+pdf-extract = "0.12.0"
+zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
+quick-xml = "0.41.0"
+
 # For capture *protection*, still deliberately NOT hand-rolling native code:
 # Tauri's set_content_protected maps to NSWindow.sharingType = .none on macOS
 # and SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE) on Windows, exactly the
