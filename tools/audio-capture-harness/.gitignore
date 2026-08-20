@@ -1,0 +1,15 @@
+# Compiled harness binaries — build locally with swiftc, don't commit
+tap-preflight
+loopback-probe
+dual-probe
+hotswap-probe
+*.dSYM/
+
+# The .app bundle bundle.sh builds so a probe can hold audio-capture consent
+build/
+
+# Audio produced by running the probes. Recordings of the user's own calls have
+# no business in a public repository.
+*.wav
+*.caf
+*.aiff

@@ -18,8 +18,18 @@ before anything is built on top of them.
       `.none` excludes overlay pixels from ScreenCaptureKit, legacy CoreGraphics, and
       full-screen shares in Meet and Zoom. Undocumented and unguaranteed, so re-run per
       macOS release. Pixel exclusion does **not** hide the window from enumeration.
-- [ ] Audio device hot-swap proof of concept — switch output mid-capture and confirm streams
-      rebuild instead of crashing.
+- [~] Far-end audio capture proof of concept — **partly done**, see
+      [`tools/audio-capture-harness`](../tools/audio-capture-harness). Measured on macOS 26.5:
+      a CoreAudio process tap delivers 48 kHz stereo float at real time and needs **no Screen
+      Recording permission**, which settles the capture path. **Still open:** every sample was
+      zero, because audio-capture consent is not granted — a tap without it succeeds and
+      returns silence rather than failing. Finishing the measurement needs the bundled probe
+      run with the grant accepted, which is a human with a dialog, not a test.
+- [~] Audio device hot-swap proof of concept — harness built (`hotswap-probe`), which watches
+      default-device and device-list notifications against a live mic stream and reports how
+      many arrive per physical action. **Not yet run across wired, Bluetooth, and external
+      devices**, and Bluetooth is the case that matters: an A2DP↔HFP switch presents as several
+      notifications in a burst, so the debounce window has to come from observed timings.
 - [ ] Unsigned in-place update test — confirm an ad-hoc-signed app survives being replaced by
       its own updater without tripping "app is damaged".
 
