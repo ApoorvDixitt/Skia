@@ -70,6 +70,12 @@ pub struct Presence {
     /// overlay staying visible under it* is an observation, and the previous
     /// approach failed exactly there.
     pub support: SupportLevel,
+    /// Whether the overlay can still receive typed input. Only interesting
+    /// alongside `never_steals_focus`: a non-activating panel refuses key
+    /// status by default, and `becomesKeyOnlyIfNeeded` is what gives it back
+    /// to a text field the user clicked. Reported because an overlay that
+    /// cannot be typed into would be a worse regression than the focus steal.
+    pub accepts_typing: bool,
 }
 
 /// The full honest picture, shaped for display without further interpretation.
@@ -160,6 +166,16 @@ fn caveats(active: bool, requested: bool, presence: &Presence) -> Vec<String> {
              Re-check it after a macOS update, the same way capture exclusion is re-checked."
                 .to_string(),
         );
+        // A non-activating panel that never grants key status cannot be typed
+        // into at all. That would be a worse regression than the focus steal
+        // this change removed, so it is a warning rather than a footnote.
+        if !presence.accepts_typing {
+            out.push(
+                "The overlay is non-activating but did not enable key-on-demand, so the Ask \
+                 input may not accept typing. Use the dashboard until this is fixed."
+                    .to_string(),
+            );
+        }
     }
 
     if cfg!(target_os = "macos") && active {
@@ -240,6 +256,13 @@ fn apply_presence<R: Runtime>(window: &WebviewWindow<R>) -> Result<Presence, Ste
             SupportLevel::Measured
         } else {
             SupportLevel::Documented
+        },
+        // Off macOS the overlay is an ordinary focusable window, so typing was
+        // never in question there.
+        accepts_typing: if cfg!(target_os = "macos") {
+            !panel.non_activating || panel.key_only_if_needed
+        } else {
+            true
         },
     })
 }
@@ -338,6 +361,7 @@ mod tests {
             never_steals_focus: true,
             mechanism: Some("NSPanel".to_string()),
             support: SupportLevel::Measured,
+            accepts_typing: true,
         }
     }
 
@@ -351,6 +375,7 @@ mod tests {
             never_steals_focus: false,
             mechanism: Some("ordinary NSWindow".to_string()),
             support: SupportLevel::Measured,
+            accepts_typing: true,
         }
     }
 
@@ -405,6 +430,22 @@ mod tests {
                 "the panel's measured-not-guaranteed status must still be stated: {c:?}"
             );
         }
+    }
+
+    #[test]
+    fn a_panel_that_cannot_be_typed_into_is_warned_about_loudly() {
+        let mut mute = with_panel();
+        mute.accepts_typing = false;
+        let c = caveats(true, true, &mute);
+        if cfg!(target_os = "macos") {
+            assert!(
+                c.iter().any(|s| s.contains("may not accept typing")),
+                "an untypeable overlay is worse than a focus steal and must be said: {c:?}"
+            );
+        }
+        // And the healthy case must not cry wolf.
+        let c = caveats(true, true, &with_panel());
+        assert!(!c.iter().any(|s| s.contains("may not accept typing")));
     }
 
     #[test]

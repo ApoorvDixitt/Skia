@@ -56,6 +56,13 @@ export interface Presence {
    * failed exactly there.
    */
   support: SupportLevel;
+  /**
+   * Whether the overlay can still be typed into. A non-activating panel
+   * refuses key status by default; `becomesKeyOnlyIfNeeded` gives it back to a
+   * clicked text field. Reported because an untypeable overlay would be worse
+   * than the focus steal the panel removes.
+   */
+  acceptsTyping: boolean;
 }
 
 export interface StealthStatus {

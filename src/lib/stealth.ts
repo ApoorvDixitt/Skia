@@ -139,6 +139,7 @@ function parsePresence(value: unknown, at: string): Presence {
     neverStealsFocus: asBoolean(source, at, "neverStealsFocus"),
     mechanism: asNullableString(source, at, "mechanism"),
     support: asSupportLevel(source, at, "support"),
+    acceptsTyping: asBoolean(source, at, "acceptsTyping"),
   };
 }
 
