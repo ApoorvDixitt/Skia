@@ -702,8 +702,8 @@ fn kb_remove_document(path: String, state: tauri::State<'_, AppState>) -> Result
 
 // --------------------------------------------------------------- privacy -----
 
-/// Exports everything on device. Covers both databases: leaving the knowledge
-/// base out of an "export everything" would be a quiet lie.
+/// Exports everything on device. Covers both schemas in the database: leaving
+/// the knowledge base out of an "export everything" would be a quiet lie.
 #[tauri::command]
 fn export_data(state: tauri::State<'_, AppState>) -> Result<String, String> {
     let history: serde_json::Value =
@@ -716,7 +716,7 @@ fn export_data(state: tauri::State<'_, AppState>) -> Result<String, String> {
     .map_err(|e| e.to_string())
 }
 
-/// Deletes everything on device, both databases.
+/// Deletes everything on device, both schemas in the database.
 #[tauri::command]
 fn purge_data(state: tauri::State<'_, AppState>) -> Result<(), String> {
     state.with_store(|s| s.purge_all())?;
@@ -725,6 +725,61 @@ fn purge_data(state: tauri::State<'_, AppState>) -> Result<(), String> {
 }
 
 // ------------------------------------------------------------------ setup ----
+
+/// The file builds up to 0.1.0 wrote the knowledge base to, before both schemas
+/// were put in `skia.db` where their design always assumed they were.
+const LEGACY_KB_FILE: &str = "skia-kb.db";
+
+/// Carry a pre-0.1.0 knowledge base into the shared database, then move the old
+/// file aside.
+///
+/// Renamed rather than deleted. The rename is what stops the adoption being
+/// attempted on every subsequent launch, and keeping the bytes costs a few
+/// megabytes of the user's own documents that Skia has no business destroying
+/// on their behalf — they can remove it whenever they like.
+///
+/// Nothing here is fatal. A knowledge base that could not be carried across is
+/// an empty knowledge base plus a file still on disk, which is recoverable; a
+/// Skia that refuses to launch over it is not. So every branch reports and
+/// returns, in the same fail-closed spirit as the capture-exclusion status:
+/// state what actually happened, never what was intended.
+fn adopt_legacy_knowledge_base(kb: &KnowledgeBase, dir: &std::path::Path) {
+    let legacy = dir.join(LEGACY_KB_FILE);
+
+    match kb.adopt_legacy(&legacy) {
+        Ok(rag::Adoption::NothingToAdopt) => {}
+        Ok(rag::Adoption::Adopted { documents, chunks }) => {
+            eprintln!(
+                "skia: moved {documents} document(s) and {chunks} chunk(s) from \
+                 {LEGACY_KB_FILE} into skia.db"
+            );
+            // Also move the WAL and shared-memory sidecars, or SQLite would
+            // find a journal for a database that is no longer beside it.
+            for suffix in ["", "-wal", "-shm"] {
+                let from = dir.join(format!("{LEGACY_KB_FILE}{suffix}"));
+                if !from.exists() {
+                    continue;
+                }
+                let to = dir.join(format!("{LEGACY_KB_FILE}{suffix}.migrated"));
+                if let Err(e) = std::fs::rename(&from, &to) {
+                    eprintln!(
+                        "skia: {} was adopted but could not be renamed, so it will \
+                         be skipped rather than re-read next launch: {e}",
+                        from.display()
+                    );
+                }
+            }
+        }
+        Ok(rag::Adoption::AlreadyPopulated { documents }) => {
+            eprintln!(
+                "skia: {LEGACY_KB_FILE} still holds a knowledge base, but skia.db \
+                 already has {documents} document(s), so it was left untouched \
+                 rather than merged — re-add anything missing from the dashboard"
+            );
+        }
+        Err(e) => eprintln!("skia: {LEGACY_KB_FILE} could not be adopted: {e}"),
+    }
+}
 
 fn toggle_overlay(window: &WebviewWindow) -> tauri::Result<()> {
     if window.is_visible()? {
@@ -744,8 +799,22 @@ pub fn run() {
             // RunEvent::Ready handler in `run()` — setting it this early stops the
             // window from ever reaching the screen.
             let dir = app.path().app_data_dir()?;
-            let store = Store::open(&dir.join("skia.db"))?;
-            let kb = KnowledgeBase::open(&dir.join("skia-kb.db"))?;
+
+            // One file, both schemas. `storage` owns `PRAGMA user_version` and
+            // `rag` carries its own version in `kb_meta` with every table
+            // prefixed `kb_`, precisely so they can share it — see the module
+            // documentation on both. Two connections rather than one because a
+            // `rusqlite::Connection` is not `Sync`; WAL and `busy_timeout = 5000`
+            // are what make that safe.
+            //
+            // It matters beyond tidiness: everything the user would want backed
+            // up or restored is then a single snapshot, taken with `VACUUM INTO`
+            // while the app keeps running. Two files would need a generation
+            // counter to stay consistent with each other.
+            let database = dir.join("skia.db");
+            let store = Store::open(&database)?;
+            let kb = KnowledgeBase::open(&database)?;
+            adopt_legacy_knowledge_base(&kb, &dir);
             let requested = read_capture_preference(&store)?;
             let needs_setup = !read_onboarding_done(&store)?;
 

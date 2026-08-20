@@ -187,6 +187,15 @@ pub enum RagError {
 
     #[error("a byte offset or count of {value} is too large for SQLite to store")]
     TooLargeToStore { value: usize },
+
+    #[error(
+        "the knowledge base at {path} was found but could not be opened to be \
+         moved into the main database, so it was left untouched: {source}"
+    )]
+    LegacyAttach {
+        path: String,
+        source: rusqlite::Error,
+    },
 }
 
 /// A document in the knowledge base, without its text.
@@ -271,6 +280,29 @@ pub struct Citation {
     pub passage: String,
 }
 
+/// What [`KnowledgeBase::adopt_legacy`] found and did.
+///
+/// Every variant is reported rather than logged and dropped, because the two
+/// that are not [`Self::Adopted`] leave a file on disk holding the user's
+/// documents. Silently ignoring it would look identical to an empty knowledge
+/// base.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", tag = "kind")]
+pub enum Adoption {
+    /// No separate knowledge-base file exists. The normal case, and the only
+    /// one a fresh install ever sees.
+    NothingToAdopt,
+    /// A separate file exists, but this knowledge base already holds documents.
+    ///
+    /// Refused rather than merged. `kb_documents.path` is unique, so a merge
+    /// would have to pick a winner per path, and neither choice is defensible
+    /// without knowing which side the user edited last. The legacy file is left
+    /// exactly where it is so nothing is lost.
+    AlreadyPopulated { documents: usize },
+    /// The legacy file's documents and chunks are now in this knowledge base.
+    Adopted { documents: usize, chunks: usize },
+}
+
 /// Whether a connection is backed by a file or by memory. Decides how strict
 /// [`configure`] is about WAL, which an in-memory database cannot use.
 #[derive(Debug, Clone, Copy)]
@@ -326,6 +358,104 @@ impl KnowledgeBase {
         schema::ensure_fts5(&conn)?;
         schema::migrate(&mut conn)?;
         Ok(Self { conn })
+    }
+
+    /// Move a knowledge base that was written to its own file into this one.
+    ///
+    /// Builds up to and including 0.1.0 opened `storage` on `skia.db` and the
+    /// knowledge base on a second file, `skia-kb.db`, even though this module was
+    /// written for the single-file design its own documentation describes — the
+    /// `kb_` prefixes, the version row in `kb_meta` instead of
+    /// `PRAGMA user_version`, and the `busy_timeout` comment in [`configure`] all
+    /// exist for it. One file is what makes a backup a single snapshot, so the
+    /// wiring was corrected and this carries any existing file across.
+    ///
+    /// Rows are copied with their primary keys intact, which is what keeps
+    /// `kb_chunks.document_id` pointing at the right document and keeps chunk ids
+    /// stable — the invariant a future embedding table depends on. Documents go
+    /// first so the foreign key is satisfiable, and the BM25 index rebuilds
+    /// itself on the way in because `kb_chunks_fts_insert` fires per row; copying
+    /// the FTS shadow tables directly would be faster and would also copy any
+    /// corruption in them.
+    ///
+    /// Safe to call on every launch: with no legacy file, or once one has been
+    /// adopted and moved aside, it is a stat and nothing more. It does not delete
+    /// or rename anything — deciding what to do with the old file afterwards is
+    /// the caller's, since only the caller knows whether the adoption was
+    /// reported to the user.
+    pub fn adopt_legacy(&self, legacy: &Path) -> Result<Adoption, RagError> {
+        if !legacy.exists() {
+            return Ok(Adoption::NothingToAdopt);
+        }
+
+        // Refuse rather than merge. See [`Adoption::AlreadyPopulated`].
+        let existing: i64 =
+            self.conn
+                .query_row("SELECT count(*) FROM kb_documents", [], |row| row.get(0))?;
+        if existing > 0 {
+            return Ok(Adoption::AlreadyPopulated {
+                documents: usize::try_from(existing).unwrap_or(usize::MAX),
+            });
+        }
+
+        // Bound as a parameter, never formatted into the SQL. A path is
+        // arbitrary user data and `ATTACH` takes a filename expression, so
+        // interpolating it would make a quote in a directory name a syntax
+        // error at best.
+        let path = legacy.to_str().ok_or_else(|| RagError::PathNotUtf8 {
+            path: legacy.display().to_string(),
+        })?;
+        self.conn
+            .execute("ATTACH DATABASE ?1 AS legacy", [path])
+            .map_err(|source| RagError::LegacyAttach {
+                path: path.to_string(),
+                source,
+            })?;
+
+        let outcome = self.copy_from_legacy();
+
+        // Detached whether or not the copy worked, so a failure does not leave
+        // the connection holding a second database open for the rest of the
+        // process.
+        let detached = self.conn.execute_batch("DETACH DATABASE legacy");
+        let counts = outcome?;
+        detached?;
+
+        let (documents, chunks) = counts;
+        Ok(Adoption::Adopted { documents, chunks })
+    }
+
+    /// The copy half of [`Self::adopt_legacy`], with `legacy` already attached.
+    ///
+    /// Split out so the caller can `DETACH` on the error path too.
+    fn copy_from_legacy(&self) -> Result<(usize, usize), RagError> {
+        // One transaction, and an owned one rather than `execute_batch` with
+        // literal BEGIN/COMMIT: a batch that fails partway leaves the
+        // transaction open, and the `DETACH` the caller runs next would then
+        // fail too, turning one error into two. Dropping this rolls back.
+        let tx = self.conn.unchecked_transaction()?;
+
+        // Documents first: kb_chunks.document_id references them, and
+        // `foreign_keys` is ON for this connection.
+        let documents = tx.execute(
+            "INSERT INTO main.kb_documents
+                    (id, path, title, format, checksum, text, byte_len, indexed_at)
+             SELECT  id, path, title, format, checksum, text, byte_len, indexed_at
+               FROM  legacy.kb_documents",
+            [],
+        )?;
+        let chunks = tx.execute(
+            "INSERT INTO main.kb_chunks
+                    (id, document_id, ordinal, section, start_offset, end_offset,
+                     token_count, text)
+             SELECT  id, document_id, ordinal, section, start_offset, end_offset,
+                     token_count, text
+               FROM  legacy.kb_chunks",
+            [],
+        )?;
+
+        tx.commit()?;
+        Ok((documents, chunks))
     }
 
     /// Read `path` and index it, replacing any previous version of it.
@@ -1375,5 +1505,104 @@ Le café éthiopien coûte 3 € la tasse.
         assert!(once
             .chars()
             .all(|c| c.is_ascii_hexdigit() && !c.is_uppercase()));
+    }
+
+    /// A unique, unused directory under the OS temp directory, matching the
+    /// helper in `storage`.
+    fn temp_kb_dir() -> std::path::PathBuf {
+        use std::sync::atomic::{AtomicU32, Ordering};
+        static COUNTER: AtomicU32 = AtomicU32::new(0);
+        let unique = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let dir =
+            std::env::temp_dir().join(format!("skia-rag-adopt-{}-{unique}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn a_knowledge_base_in_its_own_file_is_adopted_whole_and_stays_searchable() {
+        let dir = temp_kb_dir();
+        let legacy_path = dir.join("skia-kb.db");
+
+        // The shape a build up to 0.1.0 left behind: the knowledge base in its
+        // own file, next to storage's.
+        let (documents, chunks, refund_chunk_id) = {
+            let legacy = KnowledgeBase::open(&legacy_path).unwrap();
+            legacy
+                .ingest_text("/kb/handbook.md", DocumentFormat::Markdown, HANDBOOK)
+                .unwrap();
+            legacy
+                .ingest_text("/kb/onboarding.md", DocumentFormat::Markdown, &onboarding())
+                .unwrap();
+            let hits = legacy.retrieve("refundable", 10).unwrap();
+            let chunk_id = hits.first().expect("the legacy file can find it").chunk_id;
+            let documents: i64 = legacy
+                .conn
+                .query_row("SELECT count(*) FROM kb_documents", [], |r| r.get(0))
+                .unwrap();
+            let chunks: i64 = legacy
+                .conn
+                .query_row("SELECT count(*) FROM kb_chunks", [], |r| r.get(0))
+                .unwrap();
+            (documents as usize, chunks as usize, chunk_id)
+        };
+
+        let kb = KnowledgeBase::open(&dir.join("skia.db")).unwrap();
+        assert_eq!(
+            kb.adopt_legacy(&legacy_path).unwrap(),
+            Adoption::Adopted { documents, chunks }
+        );
+
+        // Searchable afterwards, which is the whole point: the BM25 index is
+        // rebuilt by the insert triggers rather than copied.
+        let hits = kb.retrieve("refundable", 10).unwrap();
+        let hit = hits.first().expect("BM25 has to work after the move");
+        assert_eq!(hit.path, "/kb/handbook.md");
+        assert_eq!(
+            hit.chunk_id, refund_chunk_id,
+            "chunk ids have to survive the move, or a future embedding table \
+             would reference the wrong passage"
+        );
+
+        // And a citation still resolves, which proves the byte offsets came
+        // across attached to the text they were computed from.
+        let citation = kb.resolve_citation(hit).unwrap();
+        assert!(citation.passage.contains("refundable within thirty days"));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn adoption_is_a_no_op_without_a_legacy_file_and_is_idempotent() {
+        let dir = temp_kb_dir();
+        let kb = KnowledgeBase::open(&dir.join("skia.db")).unwrap();
+
+        assert_eq!(
+            kb.adopt_legacy(&dir.join("skia-kb.db")).unwrap(),
+            Adoption::NothingToAdopt,
+            "a fresh install must not be charged for a migration it never needed"
+        );
+
+        let legacy_path = dir.join("skia-kb.db");
+        {
+            let legacy = KnowledgeBase::open(&legacy_path).unwrap();
+            legacy
+                .ingest_text("/kb/handbook.md", DocumentFormat::Markdown, HANDBOOK)
+                .unwrap();
+        }
+        let first = kb.adopt_legacy(&legacy_path).unwrap();
+        assert!(matches!(first, Adoption::Adopted { documents: 1, .. }));
+
+        // Called again with the file still there -- which is what happens if the
+        // caller cannot move it aside. It must refuse, not duplicate.
+        assert_eq!(
+            kb.adopt_legacy(&legacy_path).unwrap(),
+            Adoption::AlreadyPopulated { documents: 1 },
+            "a second pass must not merge, because kb_documents.path is unique \
+             and picking a winner per path is not defensible"
+        );
+        assert_eq!(kb.list_documents().unwrap().len(), 1);
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
