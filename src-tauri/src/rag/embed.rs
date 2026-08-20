@@ -54,9 +54,11 @@ pub(super) fn blob_to_vector(blob: &[u8], dims: usize) -> Result<Vec<f32>, RagEr
             got: blob.len(),
         });
     }
-    Ok(blob
-        .chunks_exact(4)
-        .map(|bytes| f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+    // The length check above guarantees the remainder is empty.
+    let (chunks, _remainder) = blob.as_chunks::<4>();
+    Ok(chunks
+        .iter()
+        .map(|bytes| f32::from_le_bytes(*bytes))
         .collect())
 }
 
