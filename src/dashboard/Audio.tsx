@@ -201,7 +201,9 @@ export function Audio() {
               />
               <span
                 className="au-meter-peak"
-                style={{ left: `${String(peakFraction * 100)}%` }}
+                style={{
+                  transform: `translateX(calc(${String(peakFraction)} * (100% - 2px)))`,
+                }}
               />
             </div>
 

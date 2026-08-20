@@ -83,8 +83,11 @@
   gap: 2px;
 }
 
+/* Capped like .db-stagger: the base delay matches the last rung, so items
+   past the ladder land with the sixth instead of before the first. */
 .db-nav > li {
   animation: db-rise var(--med) var(--ease) both;
+  animation-delay: 180ms;
 }
 
 .db-nav > li:nth-child(1) { animation-delay: 30ms; }

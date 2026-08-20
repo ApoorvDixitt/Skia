@@ -10,8 +10,10 @@
    The panel is two columns: a working column of copy and controls, and a
    recessed display window holding one calm plate per step. Motion is
    mechanical and short — a directional slide between steps, a small staggered
-   rise within one, a marching trace while a request is out. tokens.css
-   neutralises all of it under prefers-reduced-motion. */
+   rise within one, a marching trace while a request is out. tokens.css zeroes
+   the durations under prefers-reduced-motion; the stagger delays are zeroed
+   at the bottom of this file, because a zeroed duration alone would leave
+   each element invisible for the length of its delay. */
 
 /* ---------------------------------------------------------------- shell ---- */
 
@@ -1126,4 +1128,17 @@
   clip-path: inset(50%);
   white-space: nowrap;
   border: 0;
+}
+
+/* The global reduced-motion rule in tokens.css zeroes durations but not
+   delays, so a staggered element would otherwise sit at its invisible
+   from-state for the length of its delay before snapping in — a sequence of
+   pops, which is more motion, not less. Zeroing the delays keeps everything
+   immediately visible. Mirrors the same rule for .db-shell in dashboard.css. */
+@media (prefers-reduced-motion: reduce) {
+  .ob-shell *,
+  .ob-shell *::before,
+  .ob-shell *::after {
+    animation-delay: 0ms !important;
+  }
 }
