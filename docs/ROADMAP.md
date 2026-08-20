@@ -144,6 +144,12 @@ the app runs usefully on entirely local models.
       shipped first: manual meeting start with typed attendees, which the plan named as the
       honest first step. EventKit/Google Calendar remain open.
 - [ ] Overlay theming, opacity, and sizing (P1)
+- [x] Local backup and restore (P0) — one `VACUUM INTO` snapshot plus a manifest (schema
+      versions, SHA-256, device id, generation, and an explicit note that keys are excluded).
+      Restore validates on pick and applies at startup, when nothing holds the database open;
+      the displaced database is kept as a rollback. Google Drive is the remaining half: the
+      REST calls and an OAuth loopback flow, with a bring-your-own GCP client ID, since Skia
+      ships no credentials.
 - [ ] Optional encryption at rest (P1)
 - [ ] Custom live action buttons bound to prompts (P1)
 - [ ] CRM and ATS export (P2)

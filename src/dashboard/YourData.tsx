@@ -17,13 +17,23 @@
  *   database when opened.
  */
 
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 import { exportFilename, formatBytes } from "../lib/format";
-import { fetchExport, purgeData } from "../lib/history";
+import {
+  backupNow,
+  fetchExport,
+  purgeData,
+  restoreCancel,
+  restorePending,
+  restoreReport,
+  restoreReportClear,
+  restoreRequest,
+} from "../lib/history";
 import { setOnboardingDone } from "../lib/onboarding";
 import { describeIpcError } from "../lib/stealth";
 import { IconBin, IconExport, IconRerun } from "./icons";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import "./sections.css";
 
 type ExportState =
@@ -163,6 +173,8 @@ export function YourData() {
       <div className="db-body">
         <div className="db-body-inner">
           <RerunSetup />
+
+          <BackupBlock />
 
           <section className="yd-block" aria-labelledby={exportHeadingId}>
             <div className="db-row">
@@ -448,6 +460,199 @@ function RerunSetup() {
           </p>
         </div>
       ) : null}
+    </section>
+  );
+}
+
+/**
+ * Backup and restore. Two asymmetric operations, presented as such:
+ *
+ * - A backup writes one file and a manifest. The manifest is shown, not
+ *   hidden, because a backup you cannot inspect is one you cannot trust — and
+ *   it is where the app states that API keys are not included.
+ * - A restore replaces everything, so it is validated the moment a folder is
+ *   picked and only applied at the next launch, when nothing holds the
+ *   database open. The pending state is visible and cancellable until then.
+ */
+function BackupBlock() {
+  const headingId = useId();
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState<{
+    directory: string;
+    bytes: number;
+    generation: number;
+    excludes: string[];
+  } | null>(null);
+  const [pending, setPending] = useState<string | null>(null);
+  const [report, setReport] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void restorePending().then(setPending, () => undefined);
+    void restoreReport().then(setReport, () => undefined);
+  }, []);
+
+  const runBackup = (): void => {
+    setError(null);
+    void openDialog({ directory: true, multiple: false, title: "Choose a folder for the backup" })
+      .then((picked) => {
+        if (typeof picked !== "string" || picked.length === 0) return;
+        setBusy(true);
+        return backupNow(picked).then(
+          (outcome) => {
+            setDone({
+              directory: outcome.directory,
+              bytes: outcome.snapshotBytes,
+              generation: outcome.manifest.generation,
+              excludes: outcome.manifest.excludes,
+            });
+            setBusy(false);
+          },
+          (problem: unknown) => {
+            setError(describeIpcError(problem));
+            setBusy(false);
+          },
+        );
+      })
+      .catch((problem: unknown) => {
+        setError(describeIpcError(problem));
+        setBusy(false);
+      });
+  };
+
+  const runRestore = (): void => {
+    setError(null);
+    void openDialog({ directory: true, multiple: false, title: "Choose a backup folder" })
+      .then((picked) => {
+        if (typeof picked !== "string" || picked.length === 0) return;
+        return restoreRequest(picked).then(
+          () => {
+            setPending(picked);
+          },
+          (problem: unknown) => {
+            setError(describeIpcError(problem));
+          },
+        );
+      })
+      .catch((problem: unknown) => {
+        setError(describeIpcError(problem));
+      });
+  };
+
+  const runCancel = (): void => {
+    void restoreCancel().then(
+      () => {
+        setPending(null);
+      },
+      (problem: unknown) => {
+        setError(describeIpcError(problem));
+      },
+    );
+  };
+
+  return (
+    <section className="yd-block" aria-labelledby={headingId}>
+      <div className="db-row">
+        <span className="db-row-icon">
+          <IconExport />
+        </span>
+        <div className="db-row-copy">
+          <h3 className="db-row-title" id={headingId}>
+            Backup
+          </h3>
+          <p
+            className="db-row-sub"
+            title="VACUUM INTO produces a consistent copy while Skia keeps running, so the backup is never a half-written file."
+          >
+            One file holding everything — history, documents, embeddings,
+            meetings. Taken while Skia keeps running.
+          </p>
+        </div>
+        <div className="db-row-control">
+          <button
+            type="button"
+            className="db-button db-button--ghost"
+            disabled={busy}
+            onClick={runRestore}
+          >
+            Restore…
+          </button>
+          <button
+            type="button"
+            className="db-button"
+            disabled={busy}
+            data-busy={busy}
+            aria-busy={busy}
+            onClick={runBackup}
+          >
+            {busy ? "Backing up…" : "Back up now"}
+          </button>
+        </div>
+      </div>
+
+      {report === null ? null : (
+        <div className="yd-status" role="status">
+          <p className="yd-status-text">{report}</p>
+          <button
+            type="button"
+            className="db-button db-button--ghost"
+            onClick={() => {
+              void restoreReportClear().then(
+                () => {
+                  setReport(null);
+                },
+                () => {
+                  setReport(null);
+                },
+              );
+            }}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {pending === null ? null : (
+        <div className="yd-confirm" role="alert">
+          <p className="yd-confirm-title">A restore is queued</p>
+          <p className="yd-confirm-text">
+            Skia will replace its data with the backup in{" "}
+            <code className="measured" data-selectable="">
+              {pending}
+            </code>{" "}
+            the next time it starts. Your current data will be kept beside it,
+            not deleted. Nothing has changed yet.
+          </p>
+          <div className="db-row-control">
+            <button type="button" className="db-button db-button--ghost" onClick={runCancel}>
+              Cancel the restore
+            </button>
+          </div>
+        </div>
+      )}
+
+      {done === null ? null : (
+        <div className="yd-status" role="status">
+          <p className="yd-status-text">
+            Wrote {formatBytes(done.bytes)} to{" "}
+            <code className="measured" data-selectable="">
+              {done.directory}
+            </code>{" "}
+            (backup {done.generation}).
+          </p>
+          {done.excludes.map((note) => (
+            <p key={note} className="yd-status-detail">
+              Not included: {note}
+            </p>
+          ))}
+        </div>
+      )}
+
+      {error === null ? null : (
+        <p className="db-fail-error">
+          <code>{error}</code>
+        </p>
+      )}
     </section>
   );
 }

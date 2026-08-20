@@ -11,6 +11,7 @@ pub mod providers;
 pub mod rag;
 pub mod secrets;
 pub mod storage;
+pub mod sync;
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -1016,6 +1017,113 @@ async fn kb_embed_pending(state: tauri::State<'_, AppState>) -> Result<EmbedProg
     })
 }
 
+// ------------------------------------------------------- backup / restore ----
+
+/// Random per install, so two backups can be told apart without identifying
+/// the machine — see the manifest's own note on this.
+const KEY_DEVICE_ID: &str = "sync.device_id";
+/// The last generation this device wrote, so a new backup supersedes it.
+const KEY_BACKUP_GENERATION: &str = "sync.backup_generation";
+
+/// Read (creating on first use) this install's device id.
+///
+/// Derived from a timestamp and the process id rather than a hardware
+/// identifier: it only has to be unlikely to collide with another install's,
+/// and anything stronger would be collecting more than the job needs.
+fn device_id(state: &AppState) -> Result<String, String> {
+    if let Some(existing) = state.with_store(|s| s.get_setting(KEY_DEVICE_ID))? {
+        if !existing.is_empty() {
+            return Ok(existing);
+        }
+    }
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let fresh = format!("{nanos:x}-{:x}", std::process::id());
+    state.with_store(|s| s.set_setting(KEY_DEVICE_ID, &fresh))?;
+    Ok(fresh)
+}
+
+/// Write a snapshot and manifest into `directory`.
+///
+/// Blocking task: `VACUUM INTO` on a large database takes real time, and
+/// holding a command thread through it would stall every other IPC call.
+#[tauri::command]
+async fn backup_now(
+    directory: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<sync::BackupOutcome, String> {
+    let device = device_id(&state)?;
+    let generation = state
+        .with_store(|s| s.get_setting(KEY_BACKUP_GENERATION))?
+        .and_then(|raw| raw.parse::<u64>().ok())
+        .unwrap_or(0);
+
+    let outcome = state.with_store(|store| {
+        // `SyncError` is not a `StoreError`, so the mapping happens here rather
+        // than being smuggled through `with_store`'s signature.
+        Ok(sync::back_up(
+            store,
+            std::path::Path::new(&directory),
+            &device,
+            generation,
+        ))
+    })?;
+    let outcome = outcome.map_err(|e| e.to_string())?;
+
+    state.with_store(|s| {
+        s.set_setting(
+            KEY_BACKUP_GENERATION,
+            &outcome.manifest.generation.to_string(),
+        )
+    })?;
+    Ok(outcome)
+}
+
+/// Validate a backup and queue it for the next launch.
+///
+/// Two steps on purpose. Validating now means a wrong folder or a damaged
+/// snapshot is refused while the user is still looking at the dialog; applying
+/// at startup means the swap happens when nothing holds the database open.
+#[tauri::command]
+fn restore_request(
+    directory: String,
+    app: tauri::AppHandle,
+    _state: tauri::State<'_, AppState>,
+) -> Result<sync::Manifest, String> {
+    let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    sync::request_restore(std::path::Path::new(&directory), &data_dir).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn restore_cancel(app: tauri::AppHandle) -> Result<(), String> {
+    let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    sync::cancel_restore(&data_dir).map_err(|e| e.to_string())
+}
+
+/// The backup queued for the next launch, if any.
+#[tauri::command]
+fn restore_pending(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    Ok(sync::pending_restore(&data_dir).map(|p| p.display().to_string()))
+}
+
+/// What the last startup's restore did, if one was applied. Read once by the
+/// UI so a completed restore is confirmed rather than silently assumed.
+#[tauri::command]
+fn restore_report(state: tauri::State<'_, AppState>) -> Result<Option<String>, String> {
+    state.with_store(|s| s.get_setting(KEY_RESTORE_REPORT))
+}
+
+/// Set at startup by the restore that ran, cleared once the UI has shown it.
+const KEY_RESTORE_REPORT: &str = "sync.last_restore";
+
+#[tauri::command]
+fn restore_report_clear(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    state.with_store(|s| s.set_setting(KEY_RESTORE_REPORT, ""))
+}
+
 // --------------------------------------------------------------- privacy -----
 
 /// Exports everything on device. Covers both schemas in the database: leaving
@@ -1205,7 +1313,47 @@ pub fn run() {
             // while the app keeps running. Two files would need a generation
             // counter to stay consistent with each other.
             let database = dir.join("skia.db");
+
+            // A requested restore is applied here, before anything opens the
+            // database — the only moment nothing holds a handle to it. See
+            // `sync::request_restore` for why it cannot happen mid-session.
+            let restore_report = match sync::apply_pending(&dir, &database) {
+                Some(Ok(outcome)) => {
+                    eprintln!(
+                        "skia: restored a backup from {} (generation {}); the previous \
+                         database was kept at {}",
+                        outcome.manifest.device_id,
+                        outcome.manifest.generation,
+                        outcome.displaced_to
+                    );
+                    Some(format!(
+                        "Restored the backup written {} by device {} (generation {}). Your \
+                         previous data was kept at {}. API keys are not part of a backup, so \
+                         re-enter them in Providers if this is a new machine.",
+                        outcome.manifest.created_at,
+                        outcome.manifest.device_id,
+                        outcome.manifest.generation,
+                        outcome.displaced_to
+                    ))
+                }
+                Some(Err(error)) => {
+                    // Reported, never fatal: a failed restore must leave a
+                    // usable app, and the marker has already been cleared so
+                    // it cannot fail on every launch.
+                    eprintln!("skia: the requested restore failed: {error}");
+                    Some(format!("The requested restore failed: {error}"))
+                }
+                None => None,
+            };
+
             let store = Store::open(&database)?;
+            if let Some(report) = &restore_report {
+                // Written into the freshly restored database on purpose: the
+                // note belongs to the data the user is now looking at.
+                if let Err(e) = store.set_setting(KEY_RESTORE_REPORT, report) {
+                    eprintln!("skia: the restore outcome could not be recorded: {e}");
+                }
+            }
             let kb = KnowledgeBase::open(&database)?;
             adopt_legacy_knowledge_base(&kb, &dir);
             let requested = read_capture_preference(&store)?;
@@ -1289,6 +1437,12 @@ pub fn run() {
             meeting_set_action_done,
             meeting_append_note,
             meeting_search,
+            backup_now,
+            restore_request,
+            restore_cancel,
+            restore_pending,
+            restore_report,
+            restore_report_clear,
             open_dashboard,
             hide_dashboard,
             hide_overlay,

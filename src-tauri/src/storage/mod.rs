@@ -93,6 +93,9 @@ pub enum StoreError {
 
     #[error("could not serialise the export to JSON: {0}")]
     Serialize(#[from] serde_json::Error),
+
+    #[error("could not write a database snapshot to {path}: {detail}")]
+    Snapshot { path: String, detail: String },
 }
 
 /// One conversation: an Ask exchange, a live meeting, whatever the mode says.
@@ -455,6 +458,89 @@ impl Store {
         };
 
         Ok(serde_json::to_string_pretty(&export)?)
+    }
+
+    /// Write a consistent copy of the whole database to `destination`.
+    ///
+    /// `VACUUM INTO` rather than a file copy, and that is the whole point: it
+    /// runs while the app keeps working and produces a single file that already
+    /// includes everything in the write-ahead log. Copying `skia.db` by hand
+    /// mid-write yields a database missing its most recent commits, or a
+    /// half-written page — and a backup that restores to yesterday without
+    /// saying so is worse than no backup.
+    ///
+    /// The output is one file, which is what the knowledge base sharing this
+    /// database bought: history, documents, embeddings, meetings and settings
+    /// all travel together or not at all.
+    ///
+    /// API keys are **not** in it. They live in the OS keychain and are never
+    /// written here, so a snapshot can be handed around without leaking a
+    /// credential — and a restore on a new machine needs its keys re-entered,
+    /// which is stated rather than discovered.
+    pub fn snapshot_to(&self, destination: &Path) -> Result<u64, StoreError> {
+        if let Some(parent) = destination.parent() {
+            if !parent.as_os_str().is_empty() {
+                std::fs::create_dir_all(parent).map_err(|source| StoreError::Directory {
+                    path: parent.display().to_string(),
+                    source,
+                })?;
+            }
+        }
+
+        // VACUUM INTO refuses to overwrite, which is a good default and a bad
+        // fit for "back up again": removing a previous snapshot at the same
+        // path is the caller's intent.
+        if destination.exists() {
+            std::fs::remove_file(destination).map_err(|source| StoreError::Snapshot {
+                path: destination.display().to_string(),
+                detail: format!("an existing file could not be replaced: {source}"),
+            })?;
+        }
+
+        let path = destination.to_str().ok_or_else(|| StoreError::Snapshot {
+            path: destination.display().to_string(),
+            detail: "the destination path is not valid UTF-8".to_string(),
+        })?;
+
+        // Bound, never interpolated: a path is arbitrary user data and this is
+        // SQL. Free space is not pre-checked — there is no portable way to ask
+        // without a syscall or a dependency — so the failure arrives here, and
+        // the message carries the size that was needed.
+        self.conn
+            .execute("VACUUM INTO ?1", (path,))
+            .map_err(|source| StoreError::Snapshot {
+                path: destination.display().to_string(),
+                detail: format!(
+                    "{source} (the database is about {} bytes, so at least that much free \
+                     space is needed)",
+                    self.database_bytes().unwrap_or(0)
+                ),
+            })?;
+
+        let written = std::fs::metadata(destination)
+            .map_err(|source| StoreError::Snapshot {
+                path: destination.display().to_string(),
+                detail: format!("the snapshot was written but could not be measured: {source}"),
+            })?
+            .len();
+        Ok(written)
+    }
+
+    /// Size of the live database in bytes, from SQLite's own page accounting
+    /// rather than the file system — the `-wal` file's contents count too.
+    pub fn database_bytes(&self) -> Result<u64, StoreError> {
+        let pages: i64 = self
+            .conn
+            .query_row("PRAGMA page_count", [], |row| row.get(0))?;
+        let page_size: i64 = self
+            .conn
+            .query_row("PRAGMA page_size", [], |row| row.get(0))?;
+        Ok(u64::try_from(pages.saturating_mul(page_size)).unwrap_or(0))
+    }
+
+    /// The schema version this build understands, for a snapshot's manifest.
+    pub fn schema_version() -> i32 {
+        schema::SCHEMA_VERSION
     }
 
     /// Delete everything: settings, sessions, messages and the search index.
