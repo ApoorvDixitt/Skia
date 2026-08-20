@@ -57,11 +57,18 @@ That is the same shape as the trap in the [capture harness](../macos-capture-har
 legacy CoreGraphics capture degrades quietly instead of throwing — and it fails the same way:
 it is very easy to look at a clean run and conclude the tap works.
 
-Apple ships **no public API** to check or request this permission. The prompt is triggered
-implicitly by the first capture, and its wording comes from `NSAudioCaptureUsageDescription`
-in the app's `Info.plist`. So `tap-preflight` reads the state through TCC's private SPI,
-exactly as [AudioCap](https://github.com/insidegui/AudioCap) does — the reference
-implementation for this API and, in practice, its only real documentation.
+Apple ships **no public API** to check or request this permission — and, measured later the
+same day, **no capture path triggers the prompt implicitly either**. Not the tap, and not
+even the microphone via the HAL: Skia's own shipped build recorded five seconds of exact
+zeros, prompt-free, with `NSMicrophoneUsageDescription` correctly in place. Apple's
+AVFoundation documentation states the auto-prompt belongs to `AVCaptureDeviceInput` creation
+alone; everything else *"will vend silent audio samples"* until access is granted. So consent
+must be **requested explicitly**: the microphone has a public API
+(`AVCaptureDevice.requestAccess`, which Skia now calls), while audio capture has only TCC's
+private SPI — which the probes here now use at startup, exactly as
+[AudioCap](https://github.com/insidegui/AudioCap) does. AudioCap is the reference
+implementation for this API and, in practice, its only real documentation. `tap-preflight`
+reads state through the same SPI.
 
 The SPI reading is **cross-checked against a public API** rather than trusted: for
 `kTCCServiceScreenCapture`, `TCCAccessPreflight` returned `2` while the public

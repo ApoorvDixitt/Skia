@@ -8,6 +8,15 @@ version is `0.y.z`, anything may change between releases.
 
 ## [Unreleased]
 
+### Fixed
+
+- The microphone permission dialog now actually appears. macOS never prompts on its own for
+  audio reached through the CoreAudio HAL — it silently delivers zeros instead, which is how
+  the first build recorded five seconds of perfect, empty audio without ever asking. Starting
+  the meter or a probe now explicitly requests access through `AVCaptureDevice.requestAccess`
+  first, and a refusal comes back as words naming the System Settings switch rather than as a
+  meter that sits at zero.
+
 ### Changed
 
 - The knowledge base now lives in `skia.db` alongside history and settings, instead of its own

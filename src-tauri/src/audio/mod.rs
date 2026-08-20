@@ -47,6 +47,7 @@
 //! and the audio harness's `hotswap-probe` for how its length gets measured
 //! rather than guessed.
 
+mod consent;
 mod engine;
 mod level;
 mod mic;
@@ -60,6 +61,7 @@ use std::sync::Mutex;
 
 use serde::Serialize;
 
+pub use consent::ensure_microphone;
 pub use engine::Handle;
 pub use mic::list_devices;
 
@@ -104,6 +106,9 @@ pub enum AudioError {
          status panel; reopening the app restarts it"
     )]
     EngineGone,
+
+    #[error("microphone access was not granted: {detail}")]
+    MicAccessDenied { detail: String },
 
     #[error("a recording is already in progress; wait for it to finish")]
     Busy,
