@@ -79,7 +79,9 @@ end to end, and the app can update itself.
 - [ ] Speculative retrieval and generation, cancelled on barge-in (P0)
 - [ ] Live answers under one second to first token on the fast path (P0)
 - [ ] Question and objection detection surfacing answer cards (P0)
-- [ ] Post-call pack: summary and action items (P0)
+- [~] Post-call pack: summary and action items (P0) — **action items done** (recorded during
+      the meeting, assignable, checkable, surfaced in the next brief); the model-written
+      summary needs a transcript worth summarising, i.e. live transcription.
 - [ ] Follow-up email draft (P1)
 - [ ] Missed-opportunity highlights (P1)
 - [ ] Custom note templates (P1)
@@ -134,7 +136,9 @@ the app runs usefully on entirely local models.
 
 - [ ] Developer panel: provider ping, smoke tests, retrieval eval, latency view, mock provider (P1)
 - [ ] Update card showing version and release notes (P0)
-- [ ] Calendar integration to arm listening for upcoming meetings (P1)
+- [~] Calendar integration to arm listening for upcoming meetings (P1) — the v1 fallback
+      shipped first: manual meeting start with typed attendees, which the plan named as the
+      honest first step. EventKit/Google Calendar remain open.
 - [ ] Overlay theming, opacity, and sizing (P1)
 - [ ] Optional encryption at rest (P1)
 - [ ] Custom live action buttons bound to prompts (P1)

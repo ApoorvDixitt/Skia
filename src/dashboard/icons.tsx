@@ -163,6 +163,18 @@ export function IconRerun() {
   );
 }
 
+/** Two people: meetings are who was there. */
+export function IconMeetings() {
+  return (
+    <Glyph>
+      <circle cx="5.6" cy="5.6" r="2.1" />
+      <path d="M2.4 13.2a3.2 3.2 0 0 1 6.4 0" />
+      <circle cx="10.9" cy="6.4" r="1.7" />
+      <path d="M9.9 10.4a2.9 2.9 0 0 1 3.7 2.8" />
+    </Glyph>
+  );
+}
+
 /** A microphone: capsule, stand, base. */
 export function IconAudio() {
   return (

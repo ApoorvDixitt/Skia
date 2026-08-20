@@ -20,7 +20,10 @@
 //! [`rusqlite::Connection`] is not `Sync`, so a [`Store`] handed to Tauri as
 //! managed state belongs behind a `Mutex`.
 
+mod meetings;
 mod schema;
+
+pub use meetings::{ActionItem, AttendeeSpec, Meeting, MeetingBrief, Person};
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -79,6 +82,9 @@ pub enum StoreError {
     #[error("there is no {entity} with id {id}")]
     NotFound { entity: &'static str, id: i64 },
 
+    #[error("the {field} must not be empty")]
+    EmptyField { field: &'static str },
+
     #[error(
         "the data was deleted but the write-ahead log could not be truncated, \
          so deleted text may still be recoverable from the -wal file"
@@ -127,6 +133,8 @@ struct Export {
     exported_at: i64,
     settings: BTreeMap<String, String>,
     sessions: Vec<SessionExport>,
+    people: Vec<Person>,
+    meetings: Vec<MeetingExport>,
 }
 
 /// A session with its turns nested inside it, which is how a human reads it.
@@ -136,6 +144,16 @@ struct SessionExport {
     #[serde(flatten)]
     session: Session,
     messages: Vec<Message>,
+}
+
+/// A meeting with its attendees and commitments nested, as a human reads it.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MeetingExport {
+    #[serde(flatten)]
+    meeting: Meeting,
+    attendees: Vec<Person>,
+    action_items: Vec<ActionItem>,
 }
 
 /// Whether a connection is backed by a file or by memory.
@@ -374,9 +392,52 @@ impl Store {
             }
         }
 
+        let people = {
+            let mut stmt = tx.prepare("SELECT id, name, email FROM people ORDER BY name, id")?;
+            let rows = stmt.query_map([], |row| {
+                Ok(Person {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    email: row.get(2)?,
+                })
+            })?;
+            rows.collect::<rusqlite::Result<Vec<Person>>>()?
+        };
+
+        // Meetings nested with attendees and commitments. Query-per-meeting is
+        // fine here for the same reason the messages pass is not: exports are
+        // rare and meetings number in the hundreds, not the millions.
+        let meetings = {
+            let mut stmt = tx.prepare(
+                "SELECT id, title, profile, started_at, ended_at
+                   FROM meetings ORDER BY started_at, id",
+            )?;
+            let rows = stmt.query_map([], |row| {
+                Ok(Meeting {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    profile: row.get(2)?,
+                    started_at: row.get(3)?,
+                    ended_at: row.get(4)?,
+                })
+            })?;
+            rows.collect::<rusqlite::Result<Vec<Meeting>>>()?
+        };
+
         // Read-only, but committing rather than dropping means a failure to
         // close the transaction is reported instead of discarded.
         tx.commit()?;
+
+        let meetings = meetings
+            .into_iter()
+            .map(|meeting| {
+                Ok(MeetingExport {
+                    attendees: self.meeting_attendees(meeting.id)?,
+                    action_items: self.meeting_action_items(meeting.id)?,
+                    meeting,
+                })
+            })
+            .collect::<Result<Vec<MeetingExport>, StoreError>>()?;
 
         let export = Export {
             schema_version: schema::SCHEMA_VERSION,
@@ -389,6 +450,8 @@ impl Store {
                     session,
                 })
                 .collect(),
+            people,
+            meetings,
         };
 
         Ok(serde_json::to_string_pretty(&export)?)
@@ -408,6 +471,10 @@ impl Store {
                 "DELETE FROM messages;
                  DELETE FROM sessions;
                  DELETE FROM settings;
+                 DELETE FROM action_items;
+                 DELETE FROM meeting_people;
+                 DELETE FROM meetings;
+                 DELETE FROM people;
                  INSERT INTO messages_fts (messages_fts) VALUES ('delete-all');",
             )?;
             tx.commit()?;

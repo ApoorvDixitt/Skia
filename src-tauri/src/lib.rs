@@ -747,6 +747,118 @@ fn kb_remove_document(path: String, state: tauri::State<'_, AppState>) -> Result
     state.with_kb(|kb| kb.remove_document(&path))
 }
 
+// ---------------------------------------------------------------- meetings ----
+
+/// A started meeting, with what Skia already knew walking in.
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MeetingStarted {
+    meeting_id: i64,
+    brief: storage::MeetingBrief,
+}
+
+/// One meeting with everything the UI shows about it.
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MeetingDetail {
+    meeting: storage::Meeting,
+    attendees: Vec<storage::Person>,
+    action_items: Vec<storage::ActionItem>,
+}
+
+/// Start a meeting and return the pre-meeting brief in the same call: the
+/// brief's whole value is being on screen *before* the conversation starts.
+#[tauri::command]
+fn meeting_start(
+    title: Option<String>,
+    profile: String,
+    attendees: Vec<storage::AttendeeSpec>,
+    state: tauri::State<'_, AppState>,
+) -> Result<MeetingStarted, String> {
+    let meeting_id =
+        state.with_store(|s| s.start_meeting(title.as_deref(), &profile, &attendees))?;
+    let people = state.with_store(|s| s.meeting_attendees(meeting_id))?;
+    let ids: Vec<i64> = people.iter().map(|p| p.id).collect();
+    let brief = state.with_store(|s| s.brief_for_people(&ids, Some(meeting_id)))?;
+    Ok(MeetingStarted { meeting_id, brief })
+}
+
+#[tauri::command]
+fn meeting_end(meeting_id: i64, state: tauri::State<'_, AppState>) -> Result<(), String> {
+    state.with_store(|s| s.end_meeting(meeting_id))
+}
+
+#[tauri::command]
+fn meetings_list(state: tauri::State<'_, AppState>) -> Result<Vec<storage::Meeting>, String> {
+    state.with_store(|s| s.list_meetings())
+}
+
+#[tauri::command]
+fn meeting_detail(
+    meeting_id: i64,
+    state: tauri::State<'_, AppState>,
+) -> Result<MeetingDetail, String> {
+    let meeting = state
+        .with_store(|s| s.list_meetings())?
+        .into_iter()
+        .find(|m| m.id == meeting_id)
+        .ok_or_else(|| format!("there is no meeting with id {meeting_id}"))?;
+    Ok(MeetingDetail {
+        attendees: state.with_store(|s| s.meeting_attendees(meeting_id))?,
+        action_items: state.with_store(|s| s.meeting_action_items(meeting_id))?,
+        meeting,
+    })
+}
+
+#[tauri::command]
+fn meeting_add_action(
+    meeting_id: i64,
+    person_id: Option<i64>,
+    text: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<i64, String> {
+    state.with_store(|s| s.add_action_item(meeting_id, person_id, &text))
+}
+
+#[tauri::command]
+fn meeting_set_action_done(
+    item_id: i64,
+    done: bool,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    state.with_store(|s| s.set_action_done(item_id, done))
+}
+
+/// Append a line to the meeting's transcript.
+///
+/// Today this is typed notes; when live transcription lands it is finalized
+/// utterances through the identical path — which is the point: the notes
+/// feature is the transcript pipeline, exercised end to end before any STT
+/// exists to feed it.
+#[tauri::command]
+fn meeting_append_note(
+    meeting_id: i64,
+    speaker: Option<String>,
+    text: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    state.with_kb(|kb| {
+        kb.append_transcript_window(meeting_id, speaker.as_deref(), &text)
+            .map(|_| ())
+    })
+}
+
+/// Search one meeting's transcript — the meeting-scoped view that generic Ask
+/// deliberately does not have.
+#[tauri::command]
+fn meeting_search(
+    meeting_id: i64,
+    query: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<rag::RetrievedChunk>, String> {
+    state.with_kb(|kb| kb.retrieve_meeting(meeting_id, &query, RETRIEVAL_LIMIT))
+}
+
 // ------------------------------------------------------- semantic index ------
 
 /// The embeddings configuration as the UI shows it, coverage included.
@@ -1160,6 +1272,14 @@ pub fn run() {
             kb_semantic_status,
             kb_set_embeddings_provider,
             kb_embed_pending,
+            meeting_start,
+            meeting_end,
+            meetings_list,
+            meeting_detail,
+            meeting_add_action,
+            meeting_set_action_done,
+            meeting_append_note,
+            meeting_search,
             open_dashboard,
             hide_dashboard,
             hide_overlay,

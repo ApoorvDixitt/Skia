@@ -158,8 +158,15 @@ pub(super) fn search(
     query: &[f32],
     take: usize,
 ) -> Result<Vec<VectorHit>, RagError> {
-    let mut statement =
-        conn.prepare("SELECT chunk_id, dims, vector FROM kb_embeddings WHERE model = ?1")?;
+    // Transcripts are excluded to match the keyword arm: general retrieval
+    // must not surface a private meeting; meeting scope has its own entry.
+    let mut statement = conn.prepare(
+        "SELECT e.chunk_id, e.dims, e.vector
+           FROM kb_embeddings e
+           JOIN kb_chunks c ON c.id = e.chunk_id
+           JOIN kb_documents d ON d.id = c.document_id
+          WHERE e.model = ?1 AND d.format <> 'transcript'",
+    )?;
 
     let mut hits: Vec<VectorHit> = Vec::new();
     let mut rows = statement.query((model,))?;

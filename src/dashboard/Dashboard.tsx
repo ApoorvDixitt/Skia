@@ -19,6 +19,7 @@ import { Mark } from "../ui/Mark";
 import { Audio } from "./Audio";
 import { HistorySection } from "./HistorySection";
 import { KnowledgeBase } from "./KnowledgeBase";
+import { Meetings } from "./Meetings";
 import { Prompts } from "./Prompts";
 import { Providers } from "./Providers";
 import { Status } from "./Status";
@@ -26,6 +27,7 @@ import { YourData } from "./YourData";
 import {
   IconAudio,
   IconData,
+  IconMeetings,
   IconHistory,
   IconKnowledge,
   IconPrompts,
@@ -36,6 +38,7 @@ import "./dashboard.css";
 
 type SectionId =
   | "knowledge"
+  | "meetings"
   | "history"
   | "audio"
   | "providers"
@@ -51,6 +54,7 @@ interface SectionDef {
 
 const SECTIONS: readonly SectionDef[] = [
   { id: "knowledge", label: "Knowledge base", icon: <IconKnowledge /> },
+  { id: "meetings", label: "Meetings", icon: <IconMeetings /> },
   { id: "history", label: "History", icon: <IconHistory /> },
   { id: "audio", label: "Audio", icon: <IconAudio /> },
   { id: "providers", label: "Providers", icon: <IconProviders /> },
@@ -144,6 +148,7 @@ export function Dashboard() {
       {/* Keyed by section so switching remounts: fresh reads, honest data. */}
       <main className="db-main" key={section}>
         {section === "knowledge" ? <KnowledgeBase /> : null}
+        {section === "meetings" ? <Meetings /> : null}
         {section === "history" ? <HistorySection /> : null}
         {section === "audio" ? <Audio /> : null}
         {section === "providers" ? <Providers /> : null}
