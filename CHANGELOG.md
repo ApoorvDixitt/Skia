@@ -20,6 +20,17 @@ version is `0.y.z`, anything may change between releases.
 
 ### Added
 
+- The microphone half of the audio engine: capture from the default input on a dedicated,
+  supervised thread, downmix and resample to the 16 kHz mono every transcription backend
+  expects, and rebuild the stream when the default device changes — debounced, because a
+  Bluetooth profile switch presents as several changes in quick succession. A new Audio
+  section in the dashboard shows a live level meter, the input device list, and records a
+  five-second WAV sample of exactly what a transcriber would receive. A recording of pure
+  zeros is reported as the permission problem it is (measured: capture without consent on
+  macOS succeeds and returns silence), never as success. The macOS bundle now declares
+  `NSMicrophoneUsageDescription` and `NSAudioCaptureUsageDescription`, without which the
+  first capture would abort the app or silently produce nothing.
+
 - Tauri v2 application shell with a React + TypeScript frontend.
 - Project documentation: architecture overview, phased roadmap, and release process.
 - Continuous integration for macOS and Windows, and a tag-driven release workflow. CI runs the

@@ -154,7 +154,7 @@ export function YourData() {
         <div className="db-head-copy">
           <h2 className="db-title">Your data</h2>
           <p className="db-subtitle">
-            Two SQLite files on this device — history and the document index.
+            One SQLite file on this device — history and the document index.
             Take a copy, or destroy both.
           </p>
         </div>

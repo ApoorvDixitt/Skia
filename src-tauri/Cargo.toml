@@ -49,6 +49,8 @@ keyring = "4"
 
 # Content hashing for incremental re-indexing of knowledge-base files.
 sha2 = "0.10"
+cpal = "0.18.2"
+rubato = "5.0.0"
 
 # Deliberately NOT depending on objc2 or the windows crate. Tauri already
 # implements capture protection natively -- set_content_protected maps to

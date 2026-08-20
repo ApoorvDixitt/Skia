@@ -4,6 +4,7 @@
 mod catalog;
 mod stealth;
 
+pub mod audio;
 pub mod prompts;
 pub mod providers;
 pub mod rag;
@@ -66,6 +67,9 @@ struct AppState {
     /// In-flight generations, so barge-in can cancel one mid-stream.
     inflight: Mutex<HashMap<String, CancellationToken>>,
     next_request: AtomicU64,
+    /// The audio engine's handle. `Arc` because a probe blocks for its whole
+    /// recording and runs on a blocking task that must own its reference.
+    audio: std::sync::Arc<audio::Handle>,
 }
 
 impl AppState {
@@ -724,6 +728,60 @@ fn purge_data(state: tauri::State<'_, AppState>) -> Result<(), String> {
     Ok(())
 }
 
+// ------------------------------------------------------------------ audio ----
+
+#[tauri::command]
+fn audio_devices() -> Result<Vec<audio::DeviceInfo>, String> {
+    audio::list_devices().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn audio_status(state: tauri::State<'_, AppState>) -> Result<audio::AudioStatus, String> {
+    state.audio.status().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn audio_meter_start(state: tauri::State<'_, AppState>) -> Result<audio::AudioStatus, String> {
+    state.audio.meter_start().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn audio_meter_stop(state: tauri::State<'_, AppState>) -> Result<audio::AudioStatus, String> {
+    state.audio.meter_stop().map_err(|e| e.to_string())
+}
+
+/// Record a short 16 kHz mono WAV and return where it landed.
+///
+/// Async over a blocking task because the recording takes as long as it takes:
+/// blocking a command thread for five seconds would freeze every other IPC
+/// call, including the level meter events the user watches while recording.
+#[tauri::command]
+async fn audio_probe(
+    seconds: Option<f32>,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<audio::ProbeOutcome, String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("probes");
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let path = dir.join(format!("mic-probe-{stamp}.wav"));
+
+    let handle = state.audio.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        handle
+            .probe(seconds.unwrap_or(5.0), path)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 // ------------------------------------------------------------------ setup ----
 
 /// The file builds up to 0.1.0 wrote the knowledge base to, before both schemas
@@ -818,6 +876,24 @@ pub fn run() {
             let requested = read_capture_preference(&store)?;
             let needs_setup = !read_onboarding_done(&store)?;
 
+            // The audio engine forwards its events to every window: the
+            // dashboard renders the meter today, and the overlay will want the
+            // same signal when live mode lands.
+            let audio = audio::Handle::spawn({
+                let handle = app.handle().clone();
+                move |event| {
+                    let result = match event {
+                        audio::EngineEvent::Level(level) => handle.emit("audio:level", *level),
+                        audio::EngineEvent::Status(status) => {
+                            handle.emit("audio:status", status.clone())
+                        }
+                    };
+                    if let Err(e) = result {
+                        eprintln!("skia: could not emit an audio event: {e}");
+                    }
+                }
+            });
+
             app.manage(AppState {
                 store: Mutex::new(store),
                 kb: Mutex::new(kb),
@@ -825,6 +901,7 @@ pub fn run() {
                 prompts: Mutex::new(PromptBundle::shipped_defaults()),
                 inflight: Mutex::new(HashMap::new()),
                 next_request: AtomicU64::new(1),
+                audio: std::sync::Arc::new(audio),
             });
 
             let window = app
@@ -877,7 +954,12 @@ pub fn run() {
             onboarding_done,
             set_onboarding_done,
             export_data,
-            purge_data
+            purge_data,
+            audio_devices,
+            audio_status,
+            audio_meter_start,
+            audio_meter_stop,
+            audio_probe
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

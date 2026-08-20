@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<!-- Merged into the bundle's generated Info.plist by Tauri's macOS bundler.
+
+     Both keys are load-bearing, not boilerplate, and the audio harness
+     (tools/audio-capture-harness) measured why:
+
+     - Without NSMicrophoneUsageDescription, the first microphone access
+       kills the process outright - macOS aborts an app that captures without
+       declaring why.
+     - Without NSAudioCaptureUsageDescription, a CoreAudio process tap for
+       far-end audio does not fail: it succeeds and returns silence, at
+       real-time pacing, with no error to catch. Measured on macOS 26.5 as
+       281 callbacks with peak amplitude 0.0000 while audio was playing.
+
+     The strings are the exact text macOS shows in the consent dialog, so they
+     say what Skia actually does with the audio rather than something vague
+     enough to be read as evasive. -->
+<dict>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Skia listens to your microphone during meetings to transcribe your side of the conversation. Audio stays on this device unless you configure a cloud transcription provider.</string>
+    <key>NSAudioCaptureUsageDescription</key>
+    <string>Skia captures the audio of your calls (the other participants' side) to transcribe meetings. Audio stays on this device unless you configure a cloud transcription provider.</string>
+</dict>
+</plist>
