@@ -121,6 +121,11 @@ answers, and a post-call summary with action items.
 - [x] Citations resolving to the exact source passage (P0) — byte offsets are stored per chunk
       and verified by slicing the original document, including multi-byte UTF-8. A mismatch is an
       error, never a wrong quotation. Not yet clickable in the UI.
+- [x] Collections scoping retrieval per mode (P0) — a `collection` column on each document
+      (KB schema v3, `ADD COLUMN` with a default so no data pass was needed), a per-profile
+      selection in Modes, and the scope enforced in *both* retrieval arms: a filter in only
+      one would leak by meaning. Empty selection means every collection, so a profile never
+      narrows silently, and editing a document keeps its collection.
 - [ ] Always-on context field (P0)
 - [x] Needs-retrieval gate so small talk skips lookup (P0) — heuristic, no ML.
 - [x] Model catalog, OpenRouter, custom providers, and local models via Ollama (P0) — nine

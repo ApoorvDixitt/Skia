@@ -29,6 +29,13 @@ version is `0.y.z`, anything may change between releases.
 
 ### Added
 
+- Modes decide what Skia can read, not just how it answers. Documents can be put into named
+  collections in the Knowledge base section, and each use case — interview, meeting, sales,
+  study, general — can be pointed at the collections it should see. Interview mode reaching
+  your resume while meeting mode does not is enforced in retrieval itself, in both the keyword
+  and the semantic arm, rather than asked of the model. Choosing no collections means every
+  collection, said plainly, so a mode never narrows silently. Meeting transcripts stay out of
+  scope regardless — no mode setting widens that.
 - Backup and restore. One file holds everything — history, documents, embeddings, meetings —
   and it is taken with `VACUUM INTO` while Skia keeps running, so a backup is never a
   half-written copy missing its most recent work. A manifest beside it records the schema

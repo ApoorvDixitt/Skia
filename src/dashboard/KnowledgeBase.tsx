@@ -24,10 +24,12 @@ import { formatBytes, formatMoment } from "../lib/format";
 import { describeValue } from "../lib/ipc";
 import {
   embedPending,
+  fetchCollections,
   fetchDocuments,
   ingestFile,
   removeDocument,
   semanticStatus,
+  setCollection,
   setEmbeddingsProvider,
 } from "../lib/kb";
 import type { IngestOutcome, KbDocument, SemanticStatus } from "../lib/kb";
@@ -132,6 +134,7 @@ interface DocumentRowProps {
   onAskRemove: (id: number) => void;
   onCancelRemove: () => void;
   onConfirmRemove: (doc: KbDocument) => void;
+  onSetCollection: (doc: KbDocument, collection: string) => void;
 }
 
 function DocumentRow({
@@ -140,6 +143,7 @@ function DocumentRow({
   onAskRemove,
   onCancelRemove,
   onConfirmRemove,
+  onSetCollection,
 }: DocumentRowProps) {
   const titled = doc.title !== null && doc.title.trim().length > 0;
   const file = basename(doc.path);
@@ -165,6 +169,28 @@ function DocumentRow({
       </span>
       <span role="cell" className="measured">
         {formatMoment(doc.indexedAt)}
+      </span>
+      {/* A datalist rather than a select: existing collections are offered so
+          a set stays a set, but a new one can be typed without a separate
+          "create collection" step that nothing else would use. */}
+      <span role="cell">
+        <input
+          className="kb-collection"
+          list="kb-collection-names"
+          defaultValue={doc.collection}
+          aria-label={`Collection for ${basename(doc.path)}`}
+          onBlur={(event) => {
+            const next = event.target.value.trim();
+            if (next.length > 0 && next !== doc.collection) {
+              onSetCollection(doc, next);
+            } else {
+              event.target.value = doc.collection;
+            }
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") event.currentTarget.blur();
+          }}
+        />
       </span>
       <span role="cell" className="kb-cell-actions">
         <button
@@ -249,6 +275,7 @@ export function KnowledgeBase() {
   const [removalOutcome, setRemovalOutcome] = useState<RemovalOutcome | null>(
     null,
   );
+  const [collections, setCollections] = useState<string[]>([]);
   const [semantic, setSemantic] = useState<SemanticStatus | null>(null);
   const [semanticChoices, setSemanticChoices] = useState<ProviderEntry[]>([]);
   const [semanticError, setSemanticError] = useState<string | null>(null);
@@ -277,6 +304,14 @@ export function KnowledgeBase() {
     void semanticStatus().then(setSemantic, (error: unknown) => {
       setSemanticError(describeIpcError(error));
     });
+    void fetchCollections().then(
+      (list) => {
+        setCollections(list.map((entry) => entry.name));
+      },
+      () => {
+        // The datalist degrades to free text; nothing else depends on it.
+      },
+    );
     void fetchProviderCatalog().then(
       (entries) => {
         // Only providers that actually serve embeddings are offerable, and a
@@ -636,6 +671,11 @@ export function KnowledgeBase() {
                 role="table"
                 aria-label="Indexed documents"
               >
+                <datalist id="kb-collection-names">
+                  {collections.map((name) => (
+                    <option key={name} value={name} />
+                  ))}
+                </datalist>
                 <div className="kb-row kb-row--head" role="row">
                   <span role="columnheader" className="legend">
                     Document
@@ -648,6 +688,9 @@ export function KnowledgeBase() {
                   </span>
                   <span role="columnheader" className="legend kb-num">
                     Size
+                  </span>
+                  <span role="columnheader" className="legend">
+                    Collection
                   </span>
                   <span role="columnheader" className="legend">
                     Indexed
@@ -667,6 +710,22 @@ export function KnowledgeBase() {
                     }}
                     onCancelRemove={() => {
                       setRemoval({ kind: "idle" });
+                    }}
+                    onSetCollection={(target, collection) => {
+                      void setCollection(target.path, collection).then(
+                        () => {
+                          reloadDocs();
+                          void fetchCollections().then(
+                            (list) => {
+                              setCollections(list.map((entry) => entry.name));
+                            },
+                            () => undefined,
+                          );
+                        },
+                        (error: unknown) => {
+                          setPickError(describeIpcError(error));
+                        },
+                      );
                     }}
                     onConfirmRemove={(target) => {
                       setRemoval({ kind: "working", id: target.id });

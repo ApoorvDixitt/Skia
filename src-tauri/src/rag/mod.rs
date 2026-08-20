@@ -86,7 +86,7 @@ pub use parse::{format_for_path, DocumentFormat};
 /// listing the knowledge base must not pull all of it into memory. Use
 /// [`KnowledgeBase::document_text`] when the text itself is wanted.
 const DOCUMENT_COLUMNS: &str =
-    "d.id, d.path, d.title, d.format, d.checksum, d.byte_len, d.indexed_at";
+    "d.id, d.path, d.title, d.format, d.checksum, d.byte_len, d.indexed_at, d.collection";
 
 /// Everything that can go wrong ingesting or searching the knowledge base.
 ///
@@ -197,6 +197,9 @@ pub enum RagError {
     #[error("a byte offset or count of {value} is too large for SQLite to store")]
     TooLargeToStore { value: usize },
 
+    #[error("a collection needs a name")]
+    EmptyCollection,
+
     #[error(
         "a stored embedding holds {got} bytes where its dimensions require \
          {expected}; the row is corrupt and was not scored"
@@ -229,6 +232,10 @@ pub struct Document {
     /// Unix seconds.
     pub indexed_at: i64,
     pub chunk_count: usize,
+    /// The named set this document belongs to. `default` unless assigned —
+    /// which is what lets a mode scope retrieval to the documents that
+    /// actually matter to it.
+    pub collection: String,
 }
 
 /// What an ingest actually did.
@@ -648,15 +655,37 @@ impl KnowledgeBase {
         query_vector: Option<(&str, &[f32])>,
         limit: u32,
     ) -> Result<Vec<RetrievedChunk>, RagError> {
+        self.retrieve_scoped(query, query_vector, limit, &[])
+    }
+
+    /// [`retrieve_hybrid`](Self::retrieve_hybrid), restricted to `collections`.
+    ///
+    /// An empty slice means every collection, which is what a general Ask
+    /// wants. A mode passes the collections its profile is configured for, and
+    /// that is the whole mechanism behind "interview mode knows my resume and
+    /// meeting mode does not" — the prompt changes tone, the collection
+    /// changes what Skia can see.
+    ///
+    /// Transcripts are excluded regardless, in both arms: a collection is a
+    /// convenience, not the privacy boundary.
+    pub fn retrieve_scoped(
+        &self,
+        query: &str,
+        query_vector: Option<(&str, &[f32])>,
+        limit: u32,
+        collections: &[String],
+    ) -> Result<Vec<RetrievedChunk>, RagError> {
         // Fusion reorders, so each arm contributes more candidates than the
         // caller asked for — a chunk ranked 9th by words and 2nd by meaning
         // must be reachable even when only 6 results are wanted.
         let candidates = (limit as usize).max(1) * 4;
 
-        let keyword = self.keyword_arm(query, candidates)?;
+        let keyword = self.keyword_arm(query, candidates, collections)?;
 
         let vector = match query_vector {
-            Some((model, embedding)) => embed::search(&self.conn, model, embedding, candidates)?,
+            Some((model, embedding)) => {
+                embed::search(&self.conn, model, embedding, candidates, collections)?
+            }
             None => Vec::new(),
         };
 
@@ -715,7 +744,12 @@ impl KnowledgeBase {
     /// generic Ask must not quote a private meeting unprompted. Meeting modes
     /// reach transcripts through [`Self::retrieve_meeting`], which scopes to
     /// one meeting the caller names.
-    fn keyword_arm(&self, query: &str, take: usize) -> Result<Vec<RetrievedChunk>, RagError> {
+    fn keyword_arm(
+        &self,
+        query: &str,
+        take: usize,
+        collections: &[String],
+    ) -> Result<Vec<RetrievedChunk>, RagError> {
         // Nothing the tokenizer would index, e.g. "???". An empty result is the
         // honest answer, and FTS5 does not define what an empty MATCH
         // expression means, so it must not be asked.
@@ -723,35 +757,42 @@ impl KnowledgeBase {
             return Ok(Vec::new());
         };
 
-        let mut statement = self.conn.prepare(
+        // The collection filter is built from a bound placeholder per name,
+        // never from the names themselves: a collection is user-typed text and
+        // this is SQL.
+        let scope = collection_predicate(collections, 3);
+        let mut statement = self.conn.prepare(&format!(
             "SELECT c.id, c.document_id, d.path, c.section, c.text,
                     c.start_offset, c.end_offset, kb_chunks_fts.rank
                FROM kb_chunks_fts
                JOIN kb_chunks c ON c.id = kb_chunks_fts.rowid
                JOIN kb_documents d ON d.id = c.document_id
-              WHERE kb_chunks_fts MATCH ?1 AND d.format <> 'transcript'
+              WHERE kb_chunks_fts MATCH ?1 AND d.format <> 'transcript'{scope}
               ORDER BY rank, c.document_id, c.ordinal
-              LIMIT ?2",
-        )?;
+              LIMIT ?2"
+        ))?;
+
+        let take = i64::try_from(take).unwrap_or(i64::MAX);
+        let mut params: Vec<&dyn rusqlite::ToSql> = vec![&expression, &take];
+        for name in collections {
+            params.push(name);
+        }
 
         let hits = statement
-            .query_map(
-                (&expression, i64::try_from(take).unwrap_or(i64::MAX)),
-                |row| {
-                    let rank: f64 = row.get(7)?;
-                    Ok(RetrievedChunk {
-                        chunk_id: row.get(0)?,
-                        document_id: row.get(1)?,
-                        path: row.get(2)?,
-                        section: row.get(3)?,
-                        text: row.get(4)?,
-                        start_offset: usize_from(row, 5)?,
-                        end_offset: usize_from(row, 6)?,
-                        // FTS5 ranks ascending on a negated BM25 score.
-                        score: -rank,
-                    })
-                },
-            )?
+            .query_map(params.as_slice(), |row| {
+                let rank: f64 = row.get(7)?;
+                Ok(RetrievedChunk {
+                    chunk_id: row.get(0)?,
+                    document_id: row.get(1)?,
+                    path: row.get(2)?,
+                    section: row.get(3)?,
+                    text: row.get(4)?,
+                    start_offset: usize_from(row, 5)?,
+                    end_offset: usize_from(row, 6)?,
+                    // FTS5 ranks ascending on a negated BM25 score.
+                    score: -rank,
+                })
+            })?
             .collect::<rusqlite::Result<Vec<RetrievedChunk>>>()?;
         Ok(hits)
     }
@@ -925,6 +966,43 @@ impl KnowledgeBase {
             })?
             .collect::<rusqlite::Result<Vec<RetrievedChunk>>>()?;
         Ok(hits)
+    }
+
+    // ------------------------------------------------------- collections ----
+
+    /// Move a document into `collection`.
+    ///
+    /// Renaming rather than tagging: one document, one collection. See the v3
+    /// migration for why.
+    pub fn set_collection(&self, path: &str, collection: &str) -> Result<bool, RagError> {
+        let collection = collection.trim();
+        if collection.is_empty() {
+            return Err(RagError::EmptyCollection);
+        }
+        let updated = self.conn.execute(
+            "UPDATE kb_documents SET collection = ?2 WHERE path = ?1",
+            (path, collection),
+        )?;
+        Ok(updated > 0)
+    }
+
+    /// Every collection in use, with how many documents are in it.
+    ///
+    /// Derived from the documents rather than kept in a table of its own: a
+    /// collection with nothing in it is not a fact worth storing, and a list
+    /// that can drift from reality is worse than one computed on demand.
+    pub fn collections(&self) -> Result<Vec<(String, usize)>, RagError> {
+        let mut statement = self.conn.prepare(
+            "SELECT collection, COUNT(*) FROM kb_documents
+              WHERE format <> 'transcript'
+              GROUP BY collection ORDER BY collection",
+        )?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, usize_from(row, 1)?))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
     }
 
     // -------------------------------------------------------- embeddings ----
@@ -1201,6 +1279,22 @@ fn fts5_match_expression(query: &str) -> Option<String> {
 ///
 /// The stored format is validated here rather than trusted, which is why this
 /// returns a nested result: a `rusqlite` row mapper cannot carry a [`RagError`].
+/// A ` AND d.collection IN (?n, ?n+1, ...)` fragment, or nothing.
+///
+/// Placeholders only — the names are bound separately. `first` is the index of
+/// the first free parameter in the caller's statement, so this composes with
+/// however many parameters already precede it.
+fn collection_predicate(collections: &[String], first: usize) -> String {
+    if collections.is_empty() {
+        return String::new();
+    }
+    let placeholders = (0..collections.len())
+        .map(|offset| format!("?{}", first + offset))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(" AND d.collection IN ({placeholders})")
+}
+
 fn row_to_document(row: &Row<'_>) -> rusqlite::Result<Result<Document, RagError>> {
     let format: String = row.get(3)?;
     let format = match DocumentFormat::from_db_str(&format) {
@@ -1216,7 +1310,8 @@ fn row_to_document(row: &Row<'_>) -> rusqlite::Result<Result<Document, RagError>
         checksum: row.get(4)?,
         byte_len: usize_from(row, 5)?,
         indexed_at: row.get(6)?,
-        chunk_count: usize_from(row, 7)?,
+        collection: row.get(7)?,
+        chunk_count: usize_from(row, 8)?,
     }))
 }
 
@@ -1924,6 +2019,144 @@ Le café éthiopien coûte 3 € la tasse.
             !kb.unembedded_chunks(MODEL, 100).unwrap().is_empty(),
             "the replaced document's chunks are back on the work list"
         );
+    }
+
+    // ------------------------------------------------------- collections ----
+
+    #[test]
+    fn a_scoped_question_reaches_only_its_own_collection() {
+        // The mechanism behind modes: interview mode sees the resume, meeting
+        // mode does not, and it is retrieval that enforces it rather than the
+        // prompt asking politely.
+        let kb = KnowledgeBase::open_in_memory().unwrap();
+        kb.ingest_text("/kb/handbook.md", DocumentFormat::Markdown, HANDBOOK)
+            .unwrap();
+        kb.ingest_text(
+            "/kb/resume.md",
+            DocumentFormat::Markdown,
+            "# Resume\n\n## Experience\n\nLed the refundable-billing rewrite at Acme.\n",
+        )
+        .unwrap();
+        assert!(kb.set_collection("/kb/resume.md", "interview").unwrap());
+
+        // Unscoped: both are reachable.
+        let all = kb.retrieve("refundable", 10).unwrap();
+        assert_eq!(all.len(), 2, "a general Ask sees every collection");
+
+        // Scoped to interview: only the resume.
+        let interview = kb
+            .retrieve_scoped("refundable", None, 10, &["interview".to_string()])
+            .unwrap();
+        assert_eq!(interview.len(), 1);
+        assert_eq!(interview[0].path, "/kb/resume.md");
+
+        // Scoped to default: only the handbook, which never moved.
+        let general = kb
+            .retrieve_scoped("refundable", None, 10, &["default".to_string()])
+            .unwrap();
+        assert_eq!(general.len(), 1);
+        assert_eq!(general[0].path, "/kb/handbook.md");
+
+        // Several collections at once, which is what a profile configures.
+        let both = kb
+            .retrieve_scoped(
+                "refundable",
+                None,
+                10,
+                &["interview".to_string(), "default".to_string()],
+            )
+            .unwrap();
+        assert_eq!(both.len(), 2);
+
+        // A collection nobody uses finds nothing rather than everything —
+        // failing closed, so a typo cannot silently widen the scope.
+        assert!(kb
+            .retrieve_scoped("refundable", None, 10, &["typo".to_string()])
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn the_vector_arm_respects_collection_scope_too() {
+        // A scope enforced in only one arm would leak by meaning: the word
+        // filter would refuse the document and the embedding would hand it
+        // back anyway.
+        let kb = KnowledgeBase::open_in_memory().unwrap();
+        kb.ingest_text(
+            "/kb/resume.md",
+            DocumentFormat::Markdown,
+            "# Resume\n\nLed the refundable-billing rewrite at Acme.\n",
+        )
+        .unwrap();
+        kb.set_collection("/kb/resume.md", "interview").unwrap();
+        let chunk = kb.retrieve("refundable", 1).unwrap()[0].chunk_id;
+        kb.store_embedding(chunk, "m", &[1.0, 0.0]).unwrap();
+
+        // In scope, the vector arm finds it for a query sharing no words.
+        assert_eq!(
+            kb.retrieve_scoped(
+                "money back",
+                Some(("m", &[1.0, 0.0])),
+                10,
+                &["interview".to_string()]
+            )
+            .unwrap()
+            .len(),
+            1
+        );
+        // Out of scope, it must not.
+        assert!(kb
+            .retrieve_scoped(
+                "money back",
+                Some(("m", &[1.0, 0.0])),
+                10,
+                &["default".to_string()]
+            )
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn collections_are_listed_with_counts_and_default_to_default() {
+        let kb = KnowledgeBase::open_in_memory().unwrap();
+        kb.ingest_text("/kb/a.md", DocumentFormat::Markdown, HANDBOOK)
+            .unwrap();
+        kb.ingest_text("/kb/b.md", DocumentFormat::Markdown, &onboarding())
+            .unwrap();
+        assert_eq!(kb.collections().unwrap(), vec![("default".to_string(), 2)]);
+
+        kb.set_collection("/kb/b.md", "interview").unwrap();
+        assert_eq!(
+            kb.collections().unwrap(),
+            vec![("default".to_string(), 1), ("interview".to_string(), 1)]
+        );
+
+        // A document keeps its collection across a re-ingest of the same path —
+        // otherwise every edit would silently drop it back to default and
+        // quietly widen what a mode can see.
+        kb.ingest_text(
+            "/kb/b.md",
+            DocumentFormat::Markdown,
+            &format!("{}\nAn extra line.\n", onboarding()),
+        )
+        .unwrap();
+        assert_eq!(
+            kb.list_documents()
+                .unwrap()
+                .iter()
+                .find(|d| d.path == "/kb/b.md")
+                .map(|d| d.collection.clone()),
+            Some("interview".to_string()),
+            "editing a document must not move it out of its collection"
+        );
+
+        // Naming nothing is refused rather than silently creating "".
+        assert!(matches!(
+            kb.set_collection("/kb/a.md", "  "),
+            Err(RagError::EmptyCollection)
+        ));
+        // And assigning a path nobody has is reported, not ignored.
+        assert!(!kb.set_collection("/kb/missing.md", "interview").unwrap());
     }
 
     // -------------------------------------------------------- transcripts ----

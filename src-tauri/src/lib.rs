@@ -370,13 +370,17 @@ fn build_messages(
     state: &AppState,
     prompt: &str,
     query_vector: Option<(&str, &[f32])>,
+    profile: Profile,
 ) -> Result<(Vec<ChatMessage>, bool, Vec<AskSource>), String> {
     // The gate keeps small talk from paying for a lookup.
     let searched = rag::needs_retrieval(prompt);
+    // What this profile is allowed to see. Empty means everything.
+    let collections = read_profile_collections(state, profile)?;
     let mut sources = Vec::new();
     let kb_context = if searched {
-        let chunks =
-            state.with_kb(|kb| kb.retrieve_hybrid(prompt, query_vector, RETRIEVAL_LIMIT))?;
+        let chunks = state.with_kb(|kb| {
+            kb.retrieve_scoped(prompt, query_vector, RETRIEVAL_LIMIT, &collections)
+        })?;
         let mut buf = String::new();
         for c in &chunks {
             buf.push_str(&format!(
@@ -412,7 +416,7 @@ fn build_messages(
         kb_context: Some(&kb_context),
         transcript: None,
         question: Some(prompt),
-        profile: Profile::General,
+        profile,
     };
     let system = bundle
         .render(Mode::Ask, &vars, Tone::Neutral, Length::Normal)
@@ -425,13 +429,20 @@ fn build_messages(
     ))
 }
 
+/// Start a grounded answer.
+///
+/// `profile` is which use case the question belongs to; `None` means
+/// `General`, so an existing caller keeps working and gets the general
+/// profile's collection scope.
 #[tauri::command]
 async fn ask_start(
     prompt: String,
     provider_id: String,
+    profile: Option<Profile>,
     window: WebviewWindow,
     state: tauri::State<'_, AppState>,
 ) -> Result<String, String> {
+    let profile = profile.unwrap_or(Profile::General);
     if prompt.trim().is_empty() {
         return Err("the question is empty".to_string());
     }
@@ -467,6 +478,7 @@ async fn ask_start(
         query_embedding
             .as_ref()
             .map(|(model, vector)| (model.as_str(), vector.as_slice())),
+        profile,
     )?;
 
     let request_id = format!("ask-{}", state.next_request.fetch_add(1, Ordering::Relaxed));
@@ -859,6 +871,69 @@ fn meeting_search(
     state: tauri::State<'_, AppState>,
 ) -> Result<Vec<rag::RetrievedChunk>, String> {
     state.with_kb(|kb| kb.retrieve_meeting(meeting_id, &query, RETRIEVAL_LIMIT))
+}
+
+// -------------------------------------------------------- collections -------
+
+/// Settings key holding a profile's collections, as a JSON array of names.
+///
+/// JSON in one row rather than a table: this is a handful of names per profile,
+/// read together and written together, and it is covered by export and purge
+/// for free because `settings` already is.
+fn profile_collections_key(profile: Profile) -> String {
+    format!("modes.{}.collections", profile.label().to_lowercase())
+}
+
+#[tauri::command]
+fn kb_collections(state: tauri::State<'_, AppState>) -> Result<Vec<(String, usize)>, String> {
+    state.with_kb(|kb| kb.collections())
+}
+
+#[tauri::command]
+fn kb_set_collection(
+    path: String,
+    collection: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<bool, String> {
+    state.with_kb(|kb| kb.set_collection(&path, &collection))
+}
+
+/// The collections a profile is scoped to. Empty means every collection —
+/// which is the right default, because a profile that silently narrowed
+/// retrieval on first use would look like a broken knowledge base.
+fn read_profile_collections(state: &AppState, profile: Profile) -> Result<Vec<String>, String> {
+    let raw = state.with_store(|s| s.get_setting(&profile_collections_key(profile)))?;
+    let Some(raw) = raw.filter(|r| !r.is_empty()) else {
+        return Ok(Vec::new());
+    };
+    // A corrupt row degrades to "every collection" rather than failing the
+    // question: the user asked something, not for their settings to be audited.
+    Ok(serde_json::from_str(&raw).unwrap_or_default())
+}
+
+#[tauri::command]
+fn modes_collections(
+    profile: Profile,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<String>, String> {
+    read_profile_collections(&state, profile)
+}
+
+#[tauri::command]
+fn modes_set_collections(
+    profile: Profile,
+    collections: Vec<String>,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    // Blanks dropped rather than stored: an empty name would match no document
+    // and read as a mysteriously empty mode.
+    let cleaned: Vec<String> = collections
+        .into_iter()
+        .map(|c| c.trim().to_string())
+        .filter(|c| !c.is_empty())
+        .collect();
+    let json = serde_json::to_string(&cleaned).map_err(|e| e.to_string())?;
+    state.with_store(|s| s.set_setting(&profile_collections_key(profile), &json))
 }
 
 // ------------------------------------------------------- semantic index ------
@@ -1437,6 +1512,10 @@ pub fn run() {
             meeting_set_action_done,
             meeting_append_note,
             meeting_search,
+            kb_collections,
+            kb_set_collection,
+            modes_collections,
+            modes_set_collections,
             backup_now,
             restore_request,
             restore_cancel,
