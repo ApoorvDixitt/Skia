@@ -16,6 +16,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import type { ReactElement } from "react";
 
 import { Mark } from "../ui/Mark";
+import { Audio } from "./Audio";
 import { HistorySection } from "./HistorySection";
 import { KnowledgeBase } from "./KnowledgeBase";
 import { Prompts } from "./Prompts";
@@ -23,6 +24,7 @@ import { Providers } from "./Providers";
 import { Status } from "./Status";
 import { YourData } from "./YourData";
 import {
+  IconAudio,
   IconData,
   IconHistory,
   IconKnowledge,
@@ -35,6 +37,7 @@ import "./dashboard.css";
 type SectionId =
   | "knowledge"
   | "history"
+  | "audio"
   | "providers"
   | "prompts"
   | "status"
@@ -49,6 +52,7 @@ interface SectionDef {
 const SECTIONS: readonly SectionDef[] = [
   { id: "knowledge", label: "Knowledge base", icon: <IconKnowledge /> },
   { id: "history", label: "History", icon: <IconHistory /> },
+  { id: "audio", label: "Audio", icon: <IconAudio /> },
   { id: "providers", label: "Providers", icon: <IconProviders /> },
   { id: "prompts", label: "Prompts", icon: <IconPrompts /> },
   { id: "status", label: "Status", icon: <IconStatus /> },
@@ -141,6 +145,7 @@ export function Dashboard() {
       <main className="db-main" key={section}>
         {section === "knowledge" ? <KnowledgeBase /> : null}
         {section === "history" ? <HistorySection /> : null}
+        {section === "audio" ? <Audio /> : null}
         {section === "providers" ? <Providers /> : null}
         {section === "prompts" ? <Prompts /> : null}
         {section === "status" ? <Status /> : null}

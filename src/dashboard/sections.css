@@ -715,3 +715,134 @@
   font-size: var(--t-sm);
   color: var(--text);
 }
+
+/* ------------------------------------------------------------- audio ---- */
+
+.au-block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.au-block:last-child {
+  border-bottom: none;
+}
+
+/* The meter: a hairline trough, an amber fill, a travelling peak tick.
+   The fill scales rather than resizes so the browser only composites. */
+.au-meter {
+  position: relative;
+  height: 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--sunken);
+  opacity: 0.45;
+  transition: opacity var(--fast) var(--ease);
+}
+
+.au-meter[data-active="true"] {
+  opacity: 1;
+}
+
+.au-meter-fill {
+  position: absolute;
+  inset: 0;
+  transform-origin: left center;
+  transform: scaleX(0);
+  background: var(--amber-bright);
+  transition: transform 90ms linear;
+}
+
+.au-meter[data-clipped="true"] .au-meter-fill {
+  background: var(--alarm);
+}
+
+.au-meter-peak {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--text);
+  opacity: 0.55;
+  transition: left 90ms linear;
+}
+
+.au-warning {
+  margin: 0;
+  padding: 10px 12px;
+  font-size: var(--t-sm);
+  color: var(--text);
+  border: 1px solid var(--alarm-line);
+  border-radius: var(--r-sm);
+  background-color: var(--alarm-soft);
+}
+
+.au-probe-result {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  animation: db-rise var(--fast) var(--ease) both;
+}
+
+.au-probe-result[data-tone="alarm"] {
+  border-color: var(--alarm-line);
+  background-color: var(--alarm-soft);
+}
+
+.au-probe-headline {
+  margin: 0;
+  font-size: var(--t-base);
+  font-weight: 600;
+}
+
+.au-probe-result[data-tone="alarm"] .au-probe-headline {
+  color: var(--alarm);
+}
+
+.au-probe-detail {
+  margin: 0;
+  font-size: var(--t-sm);
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.au-devices {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+}
+
+.au-device {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 2px;
+  border-bottom: 1px solid var(--line);
+}
+
+.au-device:last-child {
+  border-bottom: none;
+}
+
+.au-device-name {
+  font-size: var(--t-base);
+}
+
+.au-device-meta {
+  font-size: var(--t-sm);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.au-foot {
+  margin: 0;
+}

@@ -68,7 +68,12 @@ end to end, and the app can update itself.
 
 ## Phase 2 — live meetings
 
-- [ ] Dual-stream capture: microphone and far-end audio, kept separate (P0)
+- [~] Dual-stream capture: microphone and far-end audio, kept separate (P0) — **microphone
+      half done**: capture on a supervised engine thread, downmix + resample to 16 kHz mono,
+      debounced device hot-swap, a live meter and a recordable WAV probe in the dashboard's
+      Audio section, and silence reported as the consent state the harness measured it to be.
+      **Far end not built**: needs the CoreAudio process-tap path (macOS) and WASAPI loopback
+      (Windows) from the audio harness findings.
 - [ ] Streaming transcription with speaker labels, cloud and local backends (P0)
 - [ ] End-of-utterance detection, acoustic and lexical (P0)
 - [ ] Speculative retrieval and generation, cancelled on barge-in (P0)

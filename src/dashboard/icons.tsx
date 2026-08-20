@@ -162,3 +162,15 @@ export function IconRerun() {
     </Glyph>
   );
 }
+
+/** A microphone: capsule, stand, base. */
+export function IconAudio() {
+  return (
+    <Glyph>
+      <rect x="6.1" y="2.6" width="3.8" height="6.6" rx="1.9" />
+      <path d="M4 7.6a4 4 0 0 0 8 0" />
+      <path d="M8 11.6v1.8" />
+      <path d="M6 13.4h4" />
+    </Glyph>
+  );
+}
