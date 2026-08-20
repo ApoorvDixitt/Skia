@@ -20,6 +20,7 @@ import { Audio } from "./Audio";
 import { HistorySection } from "./HistorySection";
 import { KnowledgeBase } from "./KnowledgeBase";
 import { Meetings } from "./Meetings";
+import { Modes } from "./Modes";
 import { Prompts } from "./Prompts";
 import { Providers } from "./Providers";
 import { Status } from "./Status";
@@ -42,6 +43,7 @@ type SectionId =
   | "history"
   | "audio"
   | "providers"
+  | "modes"
   | "prompts"
   | "status"
   | "data";
@@ -58,6 +60,7 @@ const SECTIONS: readonly SectionDef[] = [
   { id: "history", label: "History", icon: <IconHistory /> },
   { id: "audio", label: "Audio", icon: <IconAudio /> },
   { id: "providers", label: "Providers", icon: <IconProviders /> },
+  { id: "modes", label: "Modes", icon: <IconMeetings /> },
   { id: "prompts", label: "Prompts", icon: <IconPrompts /> },
   { id: "status", label: "Status", icon: <IconStatus /> },
   { id: "data", label: "Your data", icon: <IconData /> },
@@ -152,6 +155,7 @@ export function Dashboard() {
         {section === "history" ? <HistorySection /> : null}
         {section === "audio" ? <Audio /> : null}
         {section === "providers" ? <Providers /> : null}
+        {section === "modes" ? <Modes /> : null}
         {section === "prompts" ? <Prompts /> : null}
         {section === "status" ? <Status /> : null}
         {section === "data" ? <YourData /> : null}

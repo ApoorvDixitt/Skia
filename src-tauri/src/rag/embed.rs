@@ -157,19 +157,28 @@ pub(super) fn search(
     model: &str,
     query: &[f32],
     take: usize,
+    collections: &[String],
 ) -> Result<Vec<VectorHit>, RagError> {
     // Transcripts are excluded to match the keyword arm: general retrieval
     // must not surface a private meeting; meeting scope has its own entry.
-    let mut statement = conn.prepare(
+    // Collections narrow it further, and must narrow *both* arms or a scoped
+    // question would still find an out-of-scope document by meaning.
+    let scope = super::collection_predicate(collections, 2);
+    let mut statement = conn.prepare(&format!(
         "SELECT e.chunk_id, e.dims, e.vector
            FROM kb_embeddings e
            JOIN kb_chunks c ON c.id = e.chunk_id
            JOIN kb_documents d ON d.id = c.document_id
-          WHERE e.model = ?1 AND d.format <> 'transcript'",
-    )?;
+          WHERE e.model = ?1 AND d.format <> 'transcript'{scope}"
+    ))?;
+
+    let mut params: Vec<&dyn rusqlite::ToSql> = vec![&model];
+    for name in collections {
+        params.push(name);
+    }
 
     let mut hits: Vec<VectorHit> = Vec::new();
-    let mut rows = statement.query((model,))?;
+    let mut rows = statement.query(params.as_slice())?;
     while let Some(row) = rows.next()? {
         let chunk_id: i64 = row.get(0)?;
         let dims: i64 = row.get(1)?;

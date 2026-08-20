@@ -24,7 +24,7 @@ use rusqlite::{Connection, OptionalExtension};
 use super::RagError;
 
 /// Highest knowledge-base schema version this build understands.
-pub(super) const KB_SCHEMA_VERSION: i32 = 2;
+pub(super) const KB_SCHEMA_VERSION: i32 = 3;
 
 /// `kb_meta` key holding the applied schema version.
 const VERSION_KEY: &str = "schema_version";
@@ -46,6 +46,10 @@ const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 2,
         sql: V2_EMBEDDINGS,
+    },
+    Migration {
+        version: 3,
+        sql: V3_COLLECTIONS,
     },
 ];
 
@@ -177,6 +181,28 @@ CREATE TABLE kb_embeddings (
 ) STRICT;
 
 CREATE INDEX kb_embeddings_by_model ON kb_embeddings (model);
+";
+
+/// Collections: which named set a document belongs to.
+///
+/// This is what makes a mode mean something. Interview mode reaching a resume
+/// while Meeting mode does not is the difference between a profile that
+/// changes the prompt and a profile that changes what Skia knows.
+///
+/// A column with a default rather than a join table, and one collection per
+/// document rather than many. A document in two collections would need a
+/// per-collection decision every time retrieval fuses ranks, and "which folder
+/// is this in" is the question users actually have. `ADD COLUMN` with a
+/// non-null default is a rewrite-free migration, so existing documents land in
+/// `default` without a data pass.
+///
+/// Not a `CHECK` on the value: collections are user-named, and constraining
+/// them here would mean a migration every time someone invents a category.
+const V3_COLLECTIONS: &str = "
+ALTER TABLE kb_documents
+    ADD COLUMN collection TEXT NOT NULL DEFAULT 'default' CHECK (collection <> '');
+
+CREATE INDEX kb_documents_by_collection ON kb_documents (collection);
 ";
 
 /// Fail loudly if this SQLite build has no FTS5 module.

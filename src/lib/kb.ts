@@ -28,6 +28,8 @@ export interface KbDocument {
   byteLen: number;
   indexedAt: number;
   chunkCount: number;
+  /** The named set this document is in. `default` unless assigned. */
+  collection: string;
 }
 
 /** What ingesting actually did. `unchanged` means nothing was written. */
@@ -72,6 +74,7 @@ function parseDocument(value: unknown, at: string): KbDocument {
     byteLen: asInteger(row, at, "byteLen"),
     indexedAt: asInteger(row, at, "indexedAt"),
     chunkCount: asInteger(row, at, "chunkCount"),
+    collection: asNonEmptyString(row, at, "collection"),
   };
 }
 
@@ -167,4 +170,71 @@ export async function embedPending(): Promise<EmbedProgress> {
     embeddedNow: asInteger(row, at, "embeddedNow"),
     remaining: asInteger(row, at, "remaining"),
   };
+}
+
+// ------------------------------------------------------------ collections ----
+
+/** The prompt profiles a mode can be configured for; mirrors `prompts::Profile`. */
+export const PROFILES = [
+  "general",
+  "interview",
+  "meeting",
+  "sales",
+  "study",
+] as const;
+
+export type ProfileId = (typeof PROFILES)[number];
+
+/** A collection and how many documents are in it. */
+export interface CollectionCount {
+  name: string;
+  documents: number;
+}
+
+export async function fetchCollections(): Promise<CollectionCount[]> {
+  const raw = await invoke<unknown>("kb_collections");
+  return mapArray(raw, "kb_collections", (entry, at) => {
+    // Rust sends a tuple, which arrives as a two-element array.
+    if (!Array.isArray(entry) || entry.length !== 2) {
+      throw new Error(`${at} should be a [name, count] pair.`);
+    }
+    const [name, documents] = entry as [unknown, unknown];
+    if (typeof name !== "string" || name.length === 0) {
+      throw new Error(`${at}[0] should be a non-empty collection name.`);
+    }
+    if (typeof documents !== "number" || !Number.isInteger(documents)) {
+      throw new Error(`${at}[1] should be a whole document count.`);
+    }
+    return { name, documents };
+  });
+}
+
+/** Returns whether a document was actually there to move. */
+export async function setCollection(
+  path: string,
+  collection: string,
+): Promise<boolean> {
+  const raw = await invoke<unknown>("kb_set_collection", { path, collection });
+  if (typeof raw !== "boolean") {
+    throw new Error("kb_set_collection should return whether it matched.");
+  }
+  return raw;
+}
+
+/** The collections a profile is scoped to. Empty means every collection. */
+export async function modeCollections(profile: ProfileId): Promise<string[]> {
+  const raw = await invoke<unknown>("modes_collections", { profile });
+  return mapArray(raw, "modes_collections", (entry, at) => {
+    if (typeof entry !== "string") {
+      throw new Error(`${at} should be a collection name.`);
+    }
+    return entry;
+  });
+}
+
+export async function setModeCollections(
+  profile: ProfileId,
+  collections: string[],
+): Promise<void> {
+  await invoke("modes_set_collections", { profile, collections });
 }

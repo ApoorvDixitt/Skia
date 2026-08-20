@@ -30,7 +30,7 @@
 
 .kb-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 80px 56px 72px 138px 74px;
+  grid-template-columns: minmax(0, 1fr) 80px 56px 72px 104px 138px 74px;
   gap: 12px;
   align-items: center;
   padding: 9px 14px;
@@ -939,4 +939,16 @@
 .mt-check span[data-done="true"] {
   text-decoration: line-through;
   color: var(--text-muted);
+}
+
+.kb-collection {
+  width: 100%;
+  min-width: 84px;
+  padding: 4px 6px;
+  font: inherit;
+  font-size: var(--t-sm);
+  color: var(--text);
+  background: var(--sunken);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
 }
