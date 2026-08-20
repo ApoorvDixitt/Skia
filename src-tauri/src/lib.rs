@@ -23,8 +23,8 @@ use tauri_plugin_global_shortcut::GlobalShortcutExt;
 use catalog::{Hosting, CATALOG};
 use prompts::{Length, Mode, Profile, PromptBundle, PromptVars, Tone};
 use providers::{
-    CancellationToken, ChatMessage, ChatRequest, MockProvider, OpenAiCompatible, OpenAiConfig,
-    Provider,
+    CancellationToken, ChatMessage, ChatRequest, EmbeddingsClient, EmbeddingsConfig, MockProvider,
+    OpenAiCompatible, OpenAiConfig, Provider,
 };
 use rag::KnowledgeBase;
 use secrets::SecretStore;
@@ -40,6 +40,14 @@ const DEFAULT_TOGGLE_SHORTCUT: &str = if cfg!(target_os = "macos") {
 };
 
 const KEY_CAPTURE_EXCLUSION: &str = "stealth.capture_exclusion_requested";
+/// Which catalog provider computes embeddings, or unset for keyword-only.
+const KEY_EMBEDDINGS_PROVIDER: &str = "embeddings.provider_id";
+/// The embedding model — also the namespace stored vectors live in, so
+/// changing it invalidates the semantic index until re-embedding catches up.
+const KEY_EMBEDDINGS_MODEL: &str = "embeddings.model";
+/// Chunks embedded per `kb_embed_pending` call. Small enough that one call
+/// stays inside a request timeout; the UI loops until nothing remains.
+const EMBED_BATCH: u32 = 32;
 /// Whether first-run setup has been finished or deliberately skipped. Skipping
 /// counts: onboarding must not reappear just because the user declined it.
 const KEY_ONBOARDING_DONE: &str = "onboarding.completed";
@@ -169,6 +177,8 @@ struct ProviderInfo {
     model: String,
     note: String,
     api_key_url: Option<String>,
+    /// The provider's default embedding model, when it serves `/embeddings`.
+    embedding_model: Option<String>,
 }
 
 #[tauri::command]
@@ -197,6 +207,7 @@ fn providers_list(state: tauri::State<'_, AppState>) -> Result<Vec<ProviderInfo>
             model: entry.default_model.to_string(),
             note: entry.note.to_string(),
             api_key_url: entry.api_key_url.map(str::to_string),
+            embedding_model: entry.embedding_model.map(str::to_string),
         });
     }
     Ok(out)
@@ -356,12 +367,14 @@ struct AskSources {
 fn build_messages(
     state: &AppState,
     prompt: &str,
+    query_vector: Option<(&str, &[f32])>,
 ) -> Result<(Vec<ChatMessage>, bool, Vec<AskSource>), String> {
     // The gate keeps small talk from paying for a lookup.
     let searched = rag::needs_retrieval(prompt);
     let mut sources = Vec::new();
     let kb_context = if searched {
-        let chunks = state.with_kb(|kb| kb.retrieve(prompt, RETRIEVAL_LIMIT))?;
+        let chunks =
+            state.with_kb(|kb| kb.retrieve_hybrid(prompt, query_vector, RETRIEVAL_LIMIT))?;
         let mut buf = String::new();
         for c in &chunks {
             buf.push_str(&format!(
@@ -422,7 +435,37 @@ async fn ask_start(
     }
 
     let provider = build_provider(&provider_id, &state.secrets)?;
-    let (messages, searched, sources) = build_messages(&state, &prompt)?;
+
+    // The query embedding for the vector arm — best-effort by design. A dead
+    // embeddings endpoint must degrade the answer to keyword grounding, not
+    // block it: the user asked a question, not for a healthy vector index.
+    let query_embedding: Option<(String, Vec<f32>)> = match build_embeddings_client(&state) {
+        Ok(Some(client)) if rag::needs_retrieval(&prompt) => {
+            match client.embed(std::slice::from_ref(&prompt)).await {
+                Ok(mut vectors) if !vectors.is_empty() => {
+                    Some((client.model().to_string(), vectors.remove(0)))
+                }
+                Ok(_) => None,
+                Err(error) => {
+                    eprintln!("skia: query embedding failed, retrieval is keyword-only: {error}");
+                    None
+                }
+            }
+        }
+        Ok(_) => None,
+        Err(error) => {
+            eprintln!("skia: embeddings misconfigured, retrieval is keyword-only: {error}");
+            None
+        }
+    };
+
+    let (messages, searched, sources) = build_messages(
+        &state,
+        &prompt,
+        query_embedding
+            .as_ref()
+            .map(|(model, vector)| (model.as_str(), vector.as_slice())),
+    )?;
 
     let request_id = format!("ask-{}", state.next_request.fetch_add(1, Ordering::Relaxed));
     let cancel = CancellationToken::new();
@@ -704,6 +747,162 @@ fn kb_remove_document(path: String, state: tauri::State<'_, AppState>) -> Result
     state.with_kb(|kb| kb.remove_document(&path))
 }
 
+// ------------------------------------------------------- semantic index ------
+
+/// The embeddings configuration as the UI shows it, coverage included.
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SemanticStatus {
+    /// `None` when semantic search is off and retrieval is keyword-only.
+    provider_id: Option<String>,
+    model: Option<String>,
+    embedded: u64,
+    total: u64,
+}
+
+/// Read the embeddings settings, if any are set.
+fn embeddings_settings(state: &AppState) -> Result<Option<(String, String)>, String> {
+    let provider = state.with_store(|s| s.get_setting(KEY_EMBEDDINGS_PROVIDER))?;
+    let model = state.with_store(|s| s.get_setting(KEY_EMBEDDINGS_MODEL))?;
+    Ok(match (provider, model) {
+        (Some(provider), Some(model)) if !provider.is_empty() && !model.is_empty() => {
+            Some((provider, model))
+        }
+        _ => None,
+    })
+}
+
+/// Build the embeddings client for the configured provider, or `None` when
+/// semantic search is off. Errors are configuration problems worth showing —
+/// a missing key, an unknown provider — not the absence of configuration.
+fn build_embeddings_client(state: &AppState) -> Result<Option<EmbeddingsClient>, String> {
+    let Some((provider_id, model)) = embeddings_settings(state)? else {
+        return Ok(None);
+    };
+    let entry = catalog::entry(&provider_id)
+        .ok_or_else(|| format!("unknown embeddings provider: {provider_id}"))?;
+
+    let mut config = EmbeddingsConfig::new(entry.id, entry.base_url, model);
+    if entry.needs_api_key() {
+        let key = state
+            .secrets
+            .get_api_key(entry.id)
+            .map_err(|e| format!("could not read the keychain: {e}"))?
+            .ok_or_else(|| {
+                format!(
+                    "{} has no API key yet — add one in Providers before using it for embeddings",
+                    entry.label
+                )
+            })?;
+        config = config.with_api_key(providers::ApiKey::new(key));
+    }
+    EmbeddingsClient::new(config)
+        .map(Some)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn kb_semantic_status(state: tauri::State<'_, AppState>) -> Result<SemanticStatus, String> {
+    match embeddings_settings(&state)? {
+        Some((provider_id, model)) => {
+            let coverage = state.with_kb(|kb| kb.embedding_coverage(&model))?;
+            Ok(SemanticStatus {
+                provider_id: Some(provider_id),
+                model: Some(model),
+                embedded: coverage.embedded,
+                total: coverage.total,
+            })
+        }
+        None => {
+            let coverage = state.with_kb(|kb| kb.embedding_coverage(""))?;
+            Ok(SemanticStatus {
+                provider_id: None,
+                model: None,
+                embedded: 0,
+                total: coverage.total,
+            })
+        }
+    }
+}
+
+/// Turn semantic search on (a provider id) or off (`None`).
+///
+/// Validation happens now, not at first use: the client is built — which
+/// checks the base URL, the model, and that the key exists — so a missing key
+/// is an error at the moment of choice rather than a silent keyword-only
+/// downgrade discovered days later.
+#[tauri::command]
+fn kb_set_embeddings_provider(
+    provider_id: Option<String>,
+    state: tauri::State<'_, AppState>,
+) -> Result<SemanticStatus, String> {
+    match provider_id {
+        None => {
+            state.with_store(|s| s.set_setting(KEY_EMBEDDINGS_PROVIDER, ""))?;
+            state.with_store(|s| s.set_setting(KEY_EMBEDDINGS_MODEL, ""))?;
+        }
+        Some(provider_id) => {
+            let entry = catalog::entry(&provider_id)
+                .ok_or_else(|| format!("unknown provider: {provider_id}"))?;
+            let model = entry.embedding_model.ok_or_else(|| {
+                format!("{} offers no embedding model to default to", entry.label)
+            })?;
+            state.with_store(|s| s.set_setting(KEY_EMBEDDINGS_PROVIDER, entry.id))?;
+            state.with_store(|s| s.set_setting(KEY_EMBEDDINGS_MODEL, model))?;
+            // Validate the whole path now; roll back rather than store a
+            // configuration that can only fail later.
+            if let Err(error) = build_embeddings_client(&state) {
+                state.with_store(|s| s.set_setting(KEY_EMBEDDINGS_PROVIDER, ""))?;
+                state.with_store(|s| s.set_setting(KEY_EMBEDDINGS_MODEL, ""))?;
+                return Err(error);
+            }
+        }
+    }
+    kb_semantic_status(state)
+}
+
+/// Progress of one embedding pass.
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EmbedProgress {
+    embedded_now: usize,
+    remaining: u64,
+}
+
+/// Embed one batch of pending chunks. The UI loops this until `remaining`
+/// reaches zero, so one stuck call never holds a giant ingest hostage.
+#[tauri::command]
+async fn kb_embed_pending(state: tauri::State<'_, AppState>) -> Result<EmbedProgress, String> {
+    let Some(client) = build_embeddings_client(&state)? else {
+        return Err("semantic search is not configured".to_string());
+    };
+    let model = client.model().to_string();
+
+    let pending = state.with_kb(|kb| kb.unembedded_chunks(&model, EMBED_BATCH))?;
+    if pending.is_empty() {
+        let coverage = state.with_kb(|kb| kb.embedding_coverage(&model))?;
+        return Ok(EmbedProgress {
+            embedded_now: 0,
+            remaining: coverage.total - coverage.embedded,
+        });
+    }
+
+    let texts: Vec<String> = pending.iter().map(|(_, text)| text.clone()).collect();
+    let vectors = client.embed(&texts).await.map_err(|e| e.to_string())?;
+
+    // The client guarantees order; zip is therefore correct by contract.
+    let embedded_now = vectors.len();
+    for ((chunk_id, _), vector) in pending.iter().zip(vectors) {
+        state.with_kb(|kb| kb.store_embedding(*chunk_id, &model, &vector))?;
+    }
+
+    let coverage = state.with_kb(|kb| kb.embedding_coverage(&model))?;
+    Ok(EmbedProgress {
+        embedded_now,
+        remaining: coverage.total - coverage.embedded,
+    })
+}
+
 // --------------------------------------------------------------- privacy -----
 
 /// Exports everything on device. Covers both schemas in the database: leaving
@@ -958,6 +1157,9 @@ pub fn run() {
             kb_ingest_file,
             kb_documents,
             kb_remove_document,
+            kb_semantic_status,
+            kb_set_embeddings_provider,
+            kb_embed_pending,
             open_dashboard,
             hide_dashboard,
             hide_overlay,

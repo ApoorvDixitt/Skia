@@ -118,3 +118,53 @@ export async function removeDocument(path: string): Promise<boolean> {
   }
   return raw;
 }
+
+// ------------------------------------------------------- semantic index ----
+
+/** The embeddings configuration plus how much of the index it covers. */
+export interface SemanticStatus {
+  providerId: string | null;
+  model: string | null;
+  embedded: number;
+  total: number;
+}
+
+export interface EmbedProgress {
+  embeddedNow: number;
+  remaining: number;
+}
+
+function parseSemanticStatus(value: unknown, at: string): SemanticStatus {
+  const row = asRecord(value, at);
+  return {
+    providerId: asNullableString(row, at, "providerId"),
+    model: asNullableString(row, at, "model"),
+    embedded: asInteger(row, at, "embedded"),
+    total: asInteger(row, at, "total"),
+  };
+}
+
+export async function semanticStatus(): Promise<SemanticStatus> {
+  const raw = await invoke<unknown>("kb_semantic_status");
+  return parseSemanticStatus(raw, "kb_semantic_status");
+}
+
+/** `null` turns semantic search off. */
+export async function setEmbeddingsProvider(
+  providerId: string | null,
+): Promise<SemanticStatus> {
+  const raw = await invoke<unknown>("kb_set_embeddings_provider", {
+    providerId,
+  });
+  return parseSemanticStatus(raw, "kb_set_embeddings_provider");
+}
+
+export async function embedPending(): Promise<EmbedProgress> {
+  const raw = await invoke<unknown>("kb_embed_pending");
+  const at = "kb_embed_pending";
+  const row = asRecord(raw, at);
+  return {
+    embeddedNow: asInteger(row, at, "embeddedNow"),
+    remaining: asInteger(row, at, "remaining"),
+  };
+}

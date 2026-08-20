@@ -41,8 +41,8 @@ with `#[cfg(target_os = "...")]` and per-target Cargo dependencies, not separate
 | Shell | Tauri v2 (Rust) |
 | Frontend | React, TypeScript, Vite |
 | Storage | SQLite with FTS5 |
-| Vector search | sqlite-vec |
-| Embedding and reranking | bge-m3, bge-reranker (local) |
+| Vector search | brute-force cosine in Rust over BLOB embeddings (linear scan is inside the latency budget at personal-KB scale; sqlite-vec deferred until measured otherwise) |
+| Embeddings | any OpenAI-compatible `/embeddings` endpoint — Ollama locally, OpenAI/Gemini via BYOK; reranking deferred (needs a local model runtime) |
 | Speech to text | Deepgram Nova-3 (cloud) or whisper-rs (local) |
 | Audio capture | cpal (mic), CoreAudio process taps (macOS far end), WASAPI loopback (Windows far end) |
 | Resampling | rubato |

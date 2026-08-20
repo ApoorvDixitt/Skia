@@ -50,7 +50,7 @@ const COMPLETIONS_PATH: [&str; 2] = ["chat", "completions"];
 
 /// Sent so a gateway that requires a user agent does not reject the request,
 /// and so a provider's own logs name the app the user actually chose to run.
-const USER_AGENT: &str = concat!("skia/", env!("CARGO_PKG_VERSION"));
+pub(super) const USER_AGENT: &str = concat!("skia/", env!("CARGO_PKG_VERSION"));
 
 /// How long to wait for a connection before giving up.
 const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -309,6 +309,17 @@ impl Provider for OpenAiCompatible {
 /// base URL with a trailing slash, a sub-path or a port lands in the right place
 /// instead of producing something like `https://host/v1chat/completions`.
 fn completions_endpoint(provider: &str, base_url: &str) -> Result<Url, ProviderError> {
+    endpoint_under(provider, base_url, &COMPLETIONS_PATH)
+}
+
+/// Resolve `base_url` and append `path` to it — shared by every client that
+/// speaks to an OpenAI-compatible surface, so `/chat/completions` and
+/// `/embeddings` cannot drift apart in how they validate a base URL.
+pub(super) fn endpoint_under(
+    provider: &str,
+    base_url: &str,
+    path: &[&str],
+) -> Result<Url, ProviderError> {
     let trimmed = base_url.trim();
     if trimmed.is_empty() {
         return Err(ProviderError::Config {
@@ -346,7 +357,7 @@ fn completions_endpoint(provider: &str, base_url: &str) -> Result<Url, ProviderE
         // Drops the empty segment a trailing slash leaves behind, so
         // `.../v1` and `.../v1/` produce the same endpoint.
         segments.pop_if_empty();
-        for segment in COMPLETIONS_PATH {
+        for segment in path {
             segments.push(segment);
         }
     }
@@ -355,7 +366,7 @@ fn completions_endpoint(provider: &str, base_url: &str) -> Result<Url, ProviderE
 }
 
 /// Turn a key into a sensitive `Authorization` header, or nothing.
-fn authorization_header(
+pub(super) fn authorization_header(
     provider: &str,
     api_key: Option<&ApiKey>,
 ) -> Result<Option<HeaderValue>, ProviderError> {

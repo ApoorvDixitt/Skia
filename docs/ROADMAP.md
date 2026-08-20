@@ -97,14 +97,21 @@ answers, and a post-call summary with action items.
       zip+XML reader. Offsets for PDF/DOCX index the extracted text, which is what the
       database stores and citations quote. A scanned PDF with no text layer is refused by
       name. Legacy `.doc` stays refused with instructions.
-- [~] Local embeddings with incremental re-indexing on file change (P0) — **incremental
-      re-indexing done** via SHA-256 per document (unchanged file is a no-op, changed file
-      replaces only its own chunks). **No embeddings**: `bge-m3` is a multi-gigabyte download and
-      is not wired up.
-- [~] Hybrid retrieval: BM25 and vector search fused, then reranked (P0) — **BM25 arm done**
-      via FTS5. The vector arm and reranker are absent, so retrieval matches words rather than
-      meaning: "money back" will not find a document that only says "refund". The fusion point
-      is marked in `retrieve()` with the reciprocal-rank-fusion formula.
+- [~] Local embeddings with incremental re-indexing on file change (P0) — incremental
+      re-indexing via SHA-256 per document, and embeddings ride it for free: chunk ids are
+      stable across an unchanged re-ingest so its vectors survive, and a replaced document's
+      vectors die with its chunks by cascade. Embeddings come from any OpenAI-compatible
+      `/embeddings` endpoint — **Ollama gives the free local path** (`nomic-embed-text`),
+      OpenAI/Gemini the cloud one, all BYOK through the existing keychain. **No in-process
+      model**: `bge`-class weights need an ONNX runtime this build does not carry, so "local"
+      currently means "local Ollama", stated as such in the UI.
+- [~] Hybrid retrieval: BM25 and vector search fused, then reranked (P0) — **both arms built
+      and fused**: FTS5 BM25 and brute-force cosine over stored vectors, joined by reciprocal
+      rank fusion (K=60) exactly where the marked TODO said they would be. Deliberately not
+      `sqlite-vec`: at personal-KB scale a linear scan in Rust sits well inside the latency
+      budget and costs no native dependency. **No reranker yet** — that needs a local model
+      runtime; fused-rank order ships first. A missing, stale or misconfigured semantic index
+      degrades to keyword-only, never to worse.
 - [x] Citations resolving to the exact source passage (P0) — byte offsets are stored per chunk
       and verified by slicing the original document, including multi-byte UTF-8. A mismatch is an
       error, never a wrong quotation. Not yet clickable in the UI.
