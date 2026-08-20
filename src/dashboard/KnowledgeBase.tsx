@@ -317,7 +317,9 @@ export function KnowledgeBase() {
     setRemovalOutcome(null);
     void open({
       multiple: true,
-      filters: [{ name: "Text", extensions: ["txt", "md", "markdown"] }],
+      filters: [
+        { name: "Documents", extensions: ["txt", "md", "markdown", "pdf", "docx"] },
+      ],
     }).then(
       (picked) => {
         if (picked === null) {
@@ -395,12 +397,13 @@ export function KnowledgeBase() {
           <div className="kb-limits">
             <p
               className="kb-limit"
-              title="PDF and DOCX are not supported yet. The backend refuses them outright rather than pretending to read them."
+              title="Citations for PDF and DOCX quote the extracted text, since the original bytes are not addressable. A scanned PDF with no text layer is refused rather than indexed as nothing."
             >
               Accepts <code className="measured">.txt</code>,{" "}
               <code className="measured">.md</code>,{" "}
-              <code className="measured">.markdown</code> — PDF and DOCX are
-              refused, not half-read.
+              <code className="measured">.pdf</code>,{" "}
+              <code className="measured">.docx</code> — scanned PDFs without a
+              text layer are refused, not half-read.
             </p>
             <p
               className="kb-limit"

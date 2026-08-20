@@ -148,6 +148,9 @@ pub enum RagError {
     #[error("{path} is not valid UTF-8 text, so it was not indexed")]
     NotUtf8 { path: String },
 
+    #[error("could not extract text from {path}: {detail}")]
+    Extraction { path: String, detail: String },
+
     #[error("the path {path} is not valid UTF-8, so it cannot identify a document")]
     PathNotUtf8 { path: String },
 
@@ -1349,15 +1352,16 @@ Le café éthiopien coûte 3 € la tasse.
     }
 
     #[test]
-    fn pdf_and_docx_are_refused_with_a_reason() {
+    fn formats_skia_cannot_read_are_refused_with_a_reason() {
         let kb = KnowledgeBase::open_in_memory().unwrap();
 
         // The extension is checked before the file is opened, so these need not
-        // exist for the refusal to be the right one.
+        // exist for the refusal to be the right one. PDF and DOCX are readable
+        // now, so the refusals left are legacy .doc and everything unknown.
         for (path, extension) in [
-            ("/kb/contract.pdf", "pdf"),
-            ("/kb/minutes.docx", "docx"),
-            ("/kb/notes.DOCX", "docx"),
+            ("/kb/minutes.doc", "doc"),
+            ("/kb/notes.DOC", "doc"),
+            ("/kb/slides.pptx", "pptx"),
         ] {
             let error = kb
                 .ingest_file(Path::new(path))
@@ -1505,6 +1509,48 @@ Le café éthiopien coûte 3 € la tasse.
         assert!(once
             .chars()
             .all(|c| c.is_ascii_hexdigit() && !c.is_uppercase()));
+    }
+
+    #[test]
+    fn a_pdf_is_ingested_end_to_end_and_its_citation_resolves() {
+        // The whole pipeline over a real .docx on disk: extract, chunk, index,
+        // retrieve, and quote — because parse-level tests cannot catch an
+        // offset invariant broken between extraction and storage.
+        let dir = temp_kb_dir();
+        let path = dir.join("minutes.docx");
+        {
+            use std::io::Write;
+            let document = r#"<?xml version="1.0"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
+<w:p><w:r><w:t>Quarterly review minutes.</w:t></w:r></w:p>
+<w:p><w:r><w:t>Annual plans stay refundable within thirty days.</w:t></w:r></w:p>
+</w:body></w:document>"#;
+            let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+            writer
+                .start_file(
+                    "word/document.xml",
+                    zip::write::SimpleFileOptions::default(),
+                )
+                .unwrap();
+            writer.write_all(document.as_bytes()).unwrap();
+            std::fs::write(&path, writer.finish().unwrap().into_inner()).unwrap();
+        }
+
+        let kb = KnowledgeBase::open_in_memory().unwrap();
+        let outcome = kb.ingest_file(&path).unwrap();
+        assert_eq!(outcome.status, IngestStatus::Indexed);
+        assert!(outcome.chunk_count >= 1);
+
+        let hits = kb.retrieve("refundable", 5).unwrap();
+        let hit = hits.first().expect("the sentence must be findable");
+        let citation = kb.resolve_citation(hit).unwrap();
+        assert!(
+            citation.passage.contains("refundable within thirty days"),
+            "the citation must quote the extracted text exactly: {:?}",
+            citation.passage
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     /// A unique, unused directory under the OS temp directory, matching the

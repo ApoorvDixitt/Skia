@@ -29,6 +29,11 @@ version is `0.y.z`, anything may change between releases.
 
 ### Added
 
+- The knowledge base reads PDF and Word documents. PDF text extraction runs behind a crash
+  boundary so a malformed file is refused with its name rather than taking the app down;
+  DOCX paragraphs are read straight out of the document XML. Citations for both quote the
+  extracted text. Scanned PDFs with no text layer, and legacy `.doc` files, are refused
+  with reasons instead of being indexed as nothing.
 - The microphone half of the audio engine: capture from the default input on a dedicated,
   supervised thread, downmix and resample to the 16 kHz mono every transcription backend
   expects, and rebuild the stream when the default device changes — debounced, because a

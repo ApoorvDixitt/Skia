@@ -16,8 +16,8 @@ import {
   mapArray,
 } from "./ipc";
 
-/** Formats the ingester accepts. PDF and DOCX are refused, explicitly. */
-export type DocumentFormat = "text" | "markdown";
+/** Formats the ingester accepts. Legacy .doc is refused, explicitly. */
+export type DocumentFormat = "text" | "markdown" | "pdf" | "docx";
 
 export interface KbDocument {
   id: number;
@@ -39,7 +39,7 @@ export interface IngestOutcome {
   chunkCount: number;
 }
 
-const FORMATS: readonly string[] = ["text", "markdown"];
+const FORMATS: readonly string[] = ["text", "markdown", "pdf", "docx"];
 const STATUSES: readonly string[] = ["indexed", "unchanged", "replaced"];
 
 /**
