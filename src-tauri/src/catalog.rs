@@ -54,6 +54,11 @@ pub struct CatalogEntry {
     pub roles: &'static [ProviderRole],
     /// Where the user gets a key. Shown in settings; never fetched.
     pub api_key_url: Option<&'static str>,
+    /// Default model for this provider's `/embeddings` endpoint, or `None`
+    /// when the provider serves no embeddings worth defaulting to. This is
+    /// what makes the semantic index a one-click enable: the base URL and the
+    /// key are already known, only the model name is new information.
+    pub embedding_model: Option<&'static str>,
     /// Honest one-liner about the trade-off, shown in the picker.
     pub note: &'static str,
 }
@@ -82,6 +87,7 @@ pub const CATALOG: &[CatalogEntry] = &[
             ProviderRole::Vision,
         ],
         api_key_url: None,
+        embedding_model: None,
         note: "Canned test output, not a model. Lets the app be exercised with no key and no network.",
     },
     CatalogEntry {
@@ -92,6 +98,7 @@ pub const CATALOG: &[CatalogEntry] = &[
         default_model: "qwen3:8b",
         roles: &[ProviderRole::ChatFast, ProviderRole::ReasonStrict],
         api_key_url: None,
+        embedding_model: Some("nomic-embed-text"),
         note: "Runs on this machine. Free, private, nothing leaves the device. Needs Ollama running and the model pulled.",
     },
     CatalogEntry {
@@ -102,6 +109,7 @@ pub const CATALOG: &[CatalogEntry] = &[
         default_model: "local-model",
         roles: &[ProviderRole::ChatFast, ProviderRole::ReasonStrict],
         api_key_url: None,
+        embedding_model: None,
         note: "Runs on this machine via LM Studio's local server. Set the model to whatever you have loaded.",
     },
     CatalogEntry {
@@ -112,6 +120,7 @@ pub const CATALOG: &[CatalogEntry] = &[
         default_model: "llama-3.3-70b-versatile",
         roles: &[ProviderRole::ChatFast],
         api_key_url: Some("https://console.groq.com/keys"),
+        embedding_model: None,
         note: "Fastest time to first token, which is what live answers are judged on.",
     },
     CatalogEntry {
@@ -122,6 +131,7 @@ pub const CATALOG: &[CatalogEntry] = &[
         default_model: "llama-3.3-70b",
         roles: &[ProviderRole::ChatFast],
         api_key_url: Some("https://cloud.cerebras.ai"),
+        embedding_model: None,
         note: "Very high throughput. Good for long or agentic answers.",
     },
     CatalogEntry {
@@ -132,6 +142,7 @@ pub const CATALOG: &[CatalogEntry] = &[
         default_model: "gpt-5",
         roles: &[ProviderRole::ReasonStrict, ProviderRole::Vision],
         api_key_url: Some("https://platform.openai.com/api-keys"),
+        embedding_model: Some("text-embedding-3-small"),
         note: "Strong general reasoning and vision.",
     },
     CatalogEntry {
@@ -143,6 +154,7 @@ pub const CATALOG: &[CatalogEntry] = &[
         default_model: "claude-sonnet-4-5",
         roles: &[ProviderRole::ReasonStrict, ProviderRole::Vision],
         api_key_url: Some("https://console.anthropic.com/settings/keys"),
+        embedding_model: None,
         note: "Strong reasoning and long context. Uses Anthropic's OpenAI-compatible endpoint.",
     },
     CatalogEntry {
@@ -153,6 +165,7 @@ pub const CATALOG: &[CatalogEntry] = &[
         default_model: "gemini-2.5-flash",
         roles: &[ProviderRole::ChatFast, ProviderRole::Vision],
         api_key_url: Some("https://aistudio.google.com/apikey"),
+        embedding_model: Some("text-embedding-004"),
         note: "Fast and inexpensive, with good vision. Uses Google's OpenAI-compatible endpoint.",
     },
     CatalogEntry {
@@ -167,6 +180,7 @@ pub const CATALOG: &[CatalogEntry] = &[
             ProviderRole::Vision,
         ],
         api_key_url: Some("https://openrouter.ai/keys"),
+        embedding_model: None,
         note: "One key for many models. Simplest way to try several without separate accounts.",
     },
 ];
@@ -282,6 +296,23 @@ mod tests {
     #[test]
     fn the_mock_is_first_so_a_keyless_first_run_still_works() {
         assert_eq!(CATALOG.first().map(|e| e.id), Some("mock"));
+    }
+
+    #[test]
+    fn semantic_search_has_a_free_local_path() {
+        // The product promise extends to the semantic index: at least one
+        // keyless provider must offer an embedding model, or "semantic search
+        // without an account" is quietly gone.
+        assert!(
+            CATALOG
+                .iter()
+                .any(|e| !e.needs_api_key() && e.embedding_model.is_some()),
+            "some local provider must default an embedding model"
+        );
+        // And no embedding default may dangle on a mock: the mock's base URL
+        // is empty and an embeddings client cannot be built for it.
+        let mock = entry("mock").unwrap();
+        assert!(mock.embedding_model.is_none());
     }
 
     #[test]

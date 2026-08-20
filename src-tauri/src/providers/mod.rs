@@ -79,6 +79,7 @@
 //! ```
 
 mod cancel;
+mod embeddings;
 mod mock;
 mod openai;
 mod registry;
@@ -87,6 +88,7 @@ mod types;
 mod wire;
 
 pub use cancel::CancellationToken;
+pub use embeddings::{EmbeddingsClient, EmbeddingsConfig};
 pub use mock::{MockProvider, DEFAULT_ANSWER};
 pub use openai::{OpenAiCompatible, OpenAiConfig};
 pub use registry::Registry;

@@ -846,3 +846,12 @@
 .au-foot {
   margin: 0;
 }
+
+/* --------------------------------------------------- semantic controls ---- */
+
+.kb-semantic {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}

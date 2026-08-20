@@ -7,27 +7,30 @@
 //! # What this is, and what it is not
 //!
 //! `docs/ARCHITECTURE.md` describes retrieval as keyword and vector search run
-//! in parallel and fused. **This module is the keyword half only**, and the
-//! omission is deliberate rather than unfinished: the embedding model that half
-//! needs (`bge-m3`) is a multi-gigabyte download that cannot be verified on the
-//! machine this was written on, and shipping an unverified model download is
-//! worse than shipping a retrieval arm that is honest about its reach. BM25
-//! finds documents whose *words* match the question; it does not find documents
-//! that mean the same thing in other words. Nothing here pretends otherwise.
+//! in parallel and fused, and both arms exist. BM25 finds chunks whose *words*
+//! match the question; the vector arm finds chunks whose *meaning* is near it,
+//! scored by cosine over stored embeddings; reciprocal rank fusion joins the
+//! two ranked lists inside [`KnowledgeBase::retrieve_hybrid`].
 //!
-//! The vector arm joins at exactly one place, marked `TODO(hybrid retrieval)`
-//! inside [`KnowledgeBase::retrieve`], and reciprocal rank fusion is the join.
-//! Everything else — chunking, offsets, the incremental re-index, the gate —
-//! is shared with it and does not change when it lands.
+//! The seam worth knowing: **this module never computes an embedding.** It
+//! stores vectors, scans them, and fuses ranks — all synchronous SQLite and
+//! arithmetic. Embedding text is a network call to whichever provider the
+//! user configured, and it happens in `lib.rs` at ingest time (documents) and
+//! ask time (the query). A caller without an embedding — no provider set up,
+//! model switched and re-embedding still running, network down — passes `None`
+//! and gets keyword-only retrieval: the semantic index can be missing, stale
+//! or half-built and retrieval never gets *worse* than words. No reranker
+//! yet: that needs a local model runtime, and fused-rank order ships first.
 //!
 //! # The parts
 //!
 //! | Step | Where |
 //! |---|---|
-//! | Read a `.txt` or `.md` file | [`parse`] |
+//! | Read a `.txt`, `.md`, `.pdf` or `.docx` file | [`parse`] |
 //! | Split it into passages with byte offsets | [`chunk`] |
 //! | Store and re-index it incrementally | [`KnowledgeBase::ingest_text`] |
-//! | Find passages for a question | [`KnowledgeBase::retrieve`] |
+//! | Store and scan embeddings | [`embed`] |
+//! | Find passages for a question | [`KnowledgeBase::retrieve_hybrid`] |
 //! | Quote one exactly | [`KnowledgeBase::resolve_citation`] |
 //! | Decide whether to bother | [`needs_retrieval`] |
 //!
@@ -61,10 +64,12 @@
 //! yet included in either.
 
 mod chunk;
+mod embed;
 mod gate;
 mod parse;
 mod schema;
 
+use std::collections::HashMap;
 use std::path::Path;
 
 use rusqlite::{Connection, OpenFlags, OptionalExtension, Row};
@@ -72,6 +77,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 pub use chunk::{chunk, Chunk, MAX_TOKENS, MIN_TOKENS};
+pub use embed::EmbeddingCoverage;
 pub use gate::{needs_retrieval, SUBSTANTIVE_WORDS};
 pub use parse::{format_for_path, DocumentFormat};
 
@@ -190,6 +196,12 @@ pub enum RagError {
 
     #[error("a byte offset or count of {value} is too large for SQLite to store")]
     TooLargeToStore { value: usize },
+
+    #[error(
+        "a stored embedding holds {got} bytes where its dimensions require \
+         {expected}; the row is corrupt and was not scored"
+    )]
+    VectorCorrupt { expected: usize, got: usize },
 
     #[error(
         "the knowledge base at {path} was found but could not be opened to be \
@@ -606,6 +618,93 @@ impl KnowledgeBase {
     /// Call [`needs_retrieval`] first in a conversational loop; this does real
     /// work and small talk does not deserve it.
     pub fn retrieve(&self, query: &str, limit: u32) -> Result<Vec<RetrievedChunk>, RagError> {
+        self.retrieve_hybrid(query, None, limit)
+    }
+
+    /// [`retrieve`](Self::retrieve), with the vector arm joined in when the
+    /// caller brings a query embedding.
+    ///
+    /// `query_vector` is `(model, embedding)` — computed by the caller, because
+    /// embedding a query is a network call and this module stays synchronous
+    /// SQLite. `None` degrades to keyword-only, which is also what happens when
+    /// no chunk has an embedding under that model yet: absence of the semantic
+    /// index must never make retrieval worse than it was without one.
+    ///
+    /// The join is **reciprocal rank fusion**, exactly as `docs/ARCHITECTURE.md`
+    /// specifies: each arm contributes `1 / (60 + rank)` per chunk, ranks
+    /// starting at 1, and the fused order is by summed score. Fusion consumes
+    /// *positions* rather than scores on purpose — a BM25 score and a cosine
+    /// similarity are not comparable numbers, but "third best by words" and
+    /// "third best by meaning" are.
+    pub fn retrieve_hybrid(
+        &self,
+        query: &str,
+        query_vector: Option<(&str, &[f32])>,
+        limit: u32,
+    ) -> Result<Vec<RetrievedChunk>, RagError> {
+        // Fusion reorders, so each arm contributes more candidates than the
+        // caller asked for — a chunk ranked 9th by words and 2nd by meaning
+        // must be reachable even when only 6 results are wanted.
+        let candidates = (limit as usize).max(1) * 4;
+
+        let keyword = self.keyword_arm(query, candidates)?;
+
+        let vector = match query_vector {
+            Some((model, embedding)) => embed::search(&self.conn, model, embedding, candidates)?,
+            None => Vec::new(),
+        };
+
+        // One arm empty means nothing to fuse: the other arm's order stands.
+        if vector.is_empty() {
+            let mut hits = keyword;
+            hits.truncate(limit as usize);
+            return Ok(hits);
+        }
+
+        const RRF_K: f64 = 60.0;
+        let mut fused: HashMap<i64, f64> = HashMap::new();
+        for (index, hit) in keyword.iter().enumerate() {
+            *fused.entry(hit.chunk_id).or_insert(0.0) += 1.0 / (RRF_K + (index + 1) as f64);
+        }
+        for (index, hit) in vector.iter().enumerate() {
+            *fused.entry(hit.chunk_id).or_insert(0.0) += 1.0 / (RRF_K + (index + 1) as f64);
+        }
+
+        // Ties broken by chunk id so the same database returns the same order
+        // every time; a retrieval that reshuffles on refresh reads as flaky.
+        let mut order: Vec<(i64, f64)> = fused.into_iter().collect();
+        order.sort_by(|a, b| {
+            b.1.partial_cmp(&a.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then(a.0.cmp(&b.0))
+        });
+        order.truncate(limit as usize);
+
+        // The keyword arm already carries full rows; chunks only the vector
+        // arm found are fetched by id.
+        let mut by_id: HashMap<i64, RetrievedChunk> =
+            keyword.into_iter().map(|hit| (hit.chunk_id, hit)).collect();
+
+        let mut results = Vec::with_capacity(order.len());
+        for (chunk_id, score) in order {
+            let mut hit = match by_id.remove(&chunk_id) {
+                Some(hit) => hit,
+                None => match self.chunk_by_id(chunk_id)? {
+                    Some(hit) => hit,
+                    // The chunk was deleted between the scan and this fetch —
+                    // a re-ingest raced the query. Skipping it is the honest
+                    // move; failing the whole retrieval over it is not.
+                    None => continue,
+                },
+            };
+            hit.score = score;
+            results.push(hit);
+        }
+        Ok(results)
+    }
+
+    /// The BM25 arm: the best `take` chunks whose words match.
+    fn keyword_arm(&self, query: &str, take: usize) -> Result<Vec<RetrievedChunk>, RagError> {
         // Nothing the tokenizer would index, e.g. "???". An empty result is the
         // honest answer, and FTS5 does not define what an empty MATCH
         // expression means, so it must not be asked.
@@ -613,28 +712,6 @@ impl KnowledgeBase {
             return Ok(Vec::new());
         };
 
-        // TODO(hybrid retrieval): the vector arm joins here, and the join is
-        // **reciprocal rank fusion**. Per docs/ARCHITECTURE.md, FTS5 BM25 and
-        // sqlite-vec run in parallel and their two ranked lists are combined as
-        // score(chunk) = SUM over arms of 1 / (K + rank_in_arm), K = 60, before
-        // a reranker sees the top of the fused list. Fusion consumes *positions*
-        // rather than scores, which is why it belongs in Rust and not in SQL:
-        // a BM25 score and a cosine distance are not comparable numbers.
-        //
-        // What is already in place for it:
-        //   - `RetrievedChunk` is the shape both arms return, and `chunk_id` is
-        //     the key they are fused on;
-        //   - chunk ids survive an unchanged re-ingest, so a `kb_embeddings`
-        //     table can reference them without re-embedding a document nobody
-        //     edited;
-        //   - `retrieve` is the only entry point, so no caller changes;
-        //   - both arms will need more candidates than the caller asked for,
-        //     since fusion reorders them, so `limit` becomes a per-arm
-        //     candidate count at that point.
-        //
-        // Not built here because `bge-m3` is a multi-gigabyte download that
-        // could not be verified. Until then this returns what the user's words
-        // match, and never claims to have matched their meaning.
         let mut statement = self.conn.prepare(
             "SELECT c.id, c.document_id, d.path, c.section, c.text,
                     c.start_offset, c.end_offset, kb_chunks_fts.rank
@@ -647,22 +724,80 @@ impl KnowledgeBase {
         )?;
 
         let hits = statement
-            .query_map((&expression, i64::from(limit)), |row| {
-                let rank: f64 = row.get(7)?;
-                Ok(RetrievedChunk {
-                    chunk_id: row.get(0)?,
-                    document_id: row.get(1)?,
-                    path: row.get(2)?,
-                    section: row.get(3)?,
-                    text: row.get(4)?,
-                    start_offset: usize_from(row, 5)?,
-                    end_offset: usize_from(row, 6)?,
-                    // FTS5 ranks ascending on a negated BM25 score.
-                    score: -rank,
-                })
-            })?
+            .query_map(
+                (&expression, i64::try_from(take).unwrap_or(i64::MAX)),
+                |row| {
+                    let rank: f64 = row.get(7)?;
+                    Ok(RetrievedChunk {
+                        chunk_id: row.get(0)?,
+                        document_id: row.get(1)?,
+                        path: row.get(2)?,
+                        section: row.get(3)?,
+                        text: row.get(4)?,
+                        start_offset: usize_from(row, 5)?,
+                        end_offset: usize_from(row, 6)?,
+                        // FTS5 ranks ascending on a negated BM25 score.
+                        score: -rank,
+                    })
+                },
+            )?
             .collect::<rusqlite::Result<Vec<RetrievedChunk>>>()?;
         Ok(hits)
+    }
+
+    /// One chunk as a [`RetrievedChunk`], or `None` if it no longer exists.
+    fn chunk_by_id(&self, chunk_id: i64) -> Result<Option<RetrievedChunk>, RagError> {
+        let row = self
+            .conn
+            .query_row(
+                "SELECT c.id, c.document_id, d.path, c.section, c.text,
+                        c.start_offset, c.end_offset
+                   FROM kb_chunks c
+                   JOIN kb_documents d ON d.id = c.document_id
+                  WHERE c.id = ?1",
+                (chunk_id,),
+                |row| {
+                    Ok(RetrievedChunk {
+                        chunk_id: row.get(0)?,
+                        document_id: row.get(1)?,
+                        path: row.get(2)?,
+                        section: row.get(3)?,
+                        text: row.get(4)?,
+                        start_offset: usize_from(row, 5)?,
+                        end_offset: usize_from(row, 6)?,
+                        score: 0.0,
+                    })
+                },
+            )
+            .optional()?;
+        Ok(row)
+    }
+
+    // -------------------------------------------------------- embeddings ----
+
+    /// Store `vector` as `chunk_id`'s embedding under `model`.
+    pub fn store_embedding(
+        &self,
+        chunk_id: i64,
+        model: &str,
+        vector: &[f32],
+    ) -> Result<(), RagError> {
+        embed::store(&self.conn, chunk_id, model, vector)
+    }
+
+    /// Up to `limit` chunks that still need embedding under `model`, with
+    /// their text — the work list for an embedding pass.
+    pub fn unembedded_chunks(
+        &self,
+        model: &str,
+        limit: u32,
+    ) -> Result<Vec<(i64, String)>, RagError> {
+        embed::unembedded(&self.conn, model, limit)
+    }
+
+    /// How much of the knowledge base the vector arm can see under `model`.
+    pub fn embedding_coverage(&self, model: &str) -> Result<EmbeddingCoverage, RagError> {
+        embed::coverage(&self.conn, model)
     }
 
     /// Quote `chunk` out of the document it came from.
@@ -1509,6 +1644,132 @@ Le café éthiopien coûte 3 € la tasse.
         assert!(once
             .chars()
             .all(|c| c.is_ascii_hexdigit() && !c.is_uppercase()));
+    }
+
+    // ------------------------------------------------------------ hybrid ----
+
+    /// Hand-made embeddings on a 2-axis "meaning" space: axis 0 is
+    /// refund-ness, axis 1 is onboarding-ness. Coarse, but it makes rank
+    /// arithmetic checkable by eye.
+    const MODEL: &str = "test-embed-1";
+
+    fn kb_with_embeddings() -> (KnowledgeBase, i64, i64) {
+        let kb = KnowledgeBase::open_in_memory().unwrap();
+        kb.ingest_text("/kb/handbook.md", DocumentFormat::Markdown, HANDBOOK)
+            .unwrap();
+        kb.ingest_text("/kb/onboarding.md", DocumentFormat::Markdown, &onboarding())
+            .unwrap();
+
+        // Find the two documents' chunks and embed them on opposite axes.
+        let refund_chunk = kb.retrieve("refundable", 1).unwrap()[0].chunk_id;
+        let onboarding_chunk = kb.retrieve("shadow colleague triage", 1).unwrap()[0].chunk_id;
+        kb.store_embedding(refund_chunk, MODEL, &[1.0, 0.0])
+            .unwrap();
+        kb.store_embedding(onboarding_chunk, MODEL, &[0.0, 1.0])
+            .unwrap();
+        (kb, refund_chunk, onboarding_chunk)
+    }
+
+    #[test]
+    fn the_vector_arm_finds_meaning_the_words_would_miss() {
+        let (kb, refund_chunk, _) = kb_with_embeddings();
+
+        // "money back" appears nowhere in the handbook — BM25 alone returns
+        // nothing. A query embedding pointing at the refund axis still finds
+        // the refund chunk. This is the sentence the roadmap used to describe
+        // exactly this gap.
+        assert!(
+            kb.retrieve("money back", 5).unwrap().is_empty(),
+            "keyword-only must miss it, or this test proves nothing"
+        );
+        let hits = kb
+            .retrieve_hybrid("money back", Some((MODEL, &[0.9, 0.1])), 5)
+            .unwrap();
+        assert_eq!(
+            hits.first().map(|h| h.chunk_id),
+            Some(refund_chunk),
+            "the vector arm must carry the query the words dropped"
+        );
+    }
+
+    #[test]
+    fn fusion_prefers_the_chunk_both_arms_agree_on() {
+        let (kb, refund_chunk, _) = kb_with_embeddings();
+
+        // "refund" matches both documents by words (the onboarding doc
+        // mentions the refund policy in passing), but only the handbook chunk
+        // is near the query embedding. Agreement must beat either arm alone.
+        let hits = kb
+            .retrieve_hybrid("refund policy", Some((MODEL, &[1.0, 0.05])), 5)
+            .unwrap();
+        assert_eq!(hits.first().map(|h| h.chunk_id), Some(refund_chunk));
+        // The fused score is what orders results now.
+        assert!(hits.windows(2).all(|w| w[0].score >= w[1].score));
+    }
+
+    #[test]
+    fn no_embedding_and_no_vector_rows_both_degrade_to_keyword_order() {
+        let (kb, refund_chunk, _) = kb_with_embeddings();
+
+        // Caller has no query embedding.
+        let keyword_only = kb.retrieve("refundable", 5).unwrap();
+        assert_eq!(keyword_only.first().map(|h| h.chunk_id), Some(refund_chunk));
+
+        // Caller has one, but under a model no chunk is embedded with: the
+        // arm is empty and keyword order must stand untouched.
+        let wrong_model = kb
+            .retrieve_hybrid("refundable", Some(("other-model", &[1.0, 0.0])), 5)
+            .unwrap();
+        assert_eq!(
+            wrong_model.iter().map(|h| h.chunk_id).collect::<Vec<_>>(),
+            keyword_only.iter().map(|h| h.chunk_id).collect::<Vec<_>>(),
+            "a model switch must degrade to keyword-only, never mix spaces"
+        );
+    }
+
+    #[test]
+    fn citations_still_resolve_for_chunks_only_the_vector_arm_found() {
+        let (kb, refund_chunk, _) = kb_with_embeddings();
+        let hits = kb
+            .retrieve_hybrid("money back", Some((MODEL, &[1.0, 0.0])), 5)
+            .unwrap();
+        let hit = hits
+            .iter()
+            .find(|h| h.chunk_id == refund_chunk)
+            .expect("found via vector arm");
+        let citation = kb.resolve_citation(hit).unwrap();
+        assert!(
+            citation.passage.contains("refundable within thirty days"),
+            "a vector-arm hit must carry offsets as exact as a keyword hit"
+        );
+    }
+
+    #[test]
+    fn embeddings_survive_an_unchanged_reingest_and_die_with_a_replaced_one() {
+        let (kb, _, _) = kb_with_embeddings();
+        let before = kb.embedding_coverage(MODEL).unwrap();
+        assert_eq!(before.embedded, 2);
+
+        // Unchanged: chunk ids stable, embeddings untouched — the invariant
+        // the module docs promise, now load-bearing.
+        kb.ingest_text("/kb/handbook.md", DocumentFormat::Markdown, HANDBOOK)
+            .unwrap();
+        assert_eq!(kb.embedding_coverage(MODEL).unwrap().embedded, 2);
+
+        // Changed: the handbook's chunks are replaced, the cascade takes its
+        // embedding with them, and the work list names exactly the new chunks.
+        kb.ingest_text(
+            "/kb/handbook.md",
+            DocumentFormat::Markdown,
+            &HANDBOOK.replace("thirty", "sixty"),
+        )
+        .unwrap();
+        let after = kb.embedding_coverage(MODEL).unwrap();
+        assert_eq!(after.embedded, 1, "only the onboarding embedding survives");
+        assert!(
+            !kb.unembedded_chunks(MODEL, 100).unwrap().is_empty(),
+            "the replaced document's chunks are back on the work list"
+        );
     }
 
     #[test]

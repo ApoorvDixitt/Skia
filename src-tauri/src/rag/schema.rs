@@ -24,7 +24,7 @@ use rusqlite::{Connection, OptionalExtension};
 use super::RagError;
 
 /// Highest knowledge-base schema version this build understands.
-pub(super) const KB_SCHEMA_VERSION: i32 = 1;
+pub(super) const KB_SCHEMA_VERSION: i32 = 2;
 
 /// `kb_meta` key holding the applied schema version.
 const VERSION_KEY: &str = "schema_version";
@@ -38,10 +38,16 @@ struct Migration {
 }
 
 /// Every migration, oldest first. Append only; never edit a shipped entry.
-const MIGRATIONS: &[Migration] = &[Migration {
-    version: 1,
-    sql: V1_KNOWLEDGE_BASE,
-}];
+const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        sql: V1_KNOWLEDGE_BASE,
+    },
+    Migration {
+        version: 2,
+        sql: V2_EMBEDDINGS,
+    },
+];
 
 /// The version ledger itself, created before any migration is considered.
 ///
@@ -139,6 +145,38 @@ CREATE TRIGGER kb_chunks_fts_update AFTER UPDATE ON kb_chunks BEGIN
     INSERT INTO kb_chunks_fts (rowid, text, section)
     VALUES (new.id, new.text, new.section);
 END;
+";
+
+/// The vector arm's storage: one embedding per chunk.
+///
+/// `chunk_id` is the primary key, so there is exactly one embedding per chunk
+/// at a time — vectors from different models live in incompatible spaces, and
+/// keeping several would invite comparing them. `model` names the space each
+/// vector belongs to; retrieval only reads rows whose model matches the one
+/// configured, so switching models degrades to keyword-only until re-embedding
+/// catches up, rather than mixing spaces silently.
+///
+/// The vector itself is little-endian f32 bytes in a BLOB, searched by
+/// brute-force cosine in Rust. Deliberately not `sqlite-vec`: at personal-KB
+/// scale (thousands of chunks) a linear scan is well under the retrieval
+/// latency budget, and the extension would add a native dependency plus an
+/// `unsafe` registration call to avoid work SQLite is not doing anyway.
+///
+/// `ON DELETE CASCADE` is the incremental story: replacing a document deletes
+/// its chunks, which deletes exactly its embeddings, and an unchanged
+/// re-ingest keeps its chunk ids so its embeddings survive untouched.
+const V2_EMBEDDINGS: &str = "
+CREATE TABLE kb_embeddings (
+    chunk_id INTEGER NOT NULL PRIMARY KEY
+             REFERENCES kb_chunks (id) ON DELETE CASCADE,
+    model    TEXT    NOT NULL CHECK (model <> ''),
+    dims     INTEGER NOT NULL CHECK (dims > 0),
+    -- f32 little-endian bytes; length must be dims * 4, checked on read and
+    -- refused loudly if wrong, because a truncated vector scores garbage.
+    vector   BLOB    NOT NULL
+) STRICT;
+
+CREATE INDEX kb_embeddings_by_model ON kb_embeddings (model);
 ";
 
 /// Fail loudly if this SQLite build has no FTS5 module.

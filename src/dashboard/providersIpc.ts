@@ -42,6 +42,8 @@ export interface ProviderEntry {
   note: string;
   /** Where the user gets a key. `null` for local and mock providers. */
   apiKeyUrl: string | null;
+  /** Default embeddings model, or null when the provider serves none. */
+  embeddingModel: string | null;
 }
 
 function parseEntry(value: unknown, at: string): ProviderEntry {
@@ -56,6 +58,7 @@ function parseEntry(value: unknown, at: string): ProviderEntry {
     model: asString(source, at, "model"),
     note: asString(source, at, "note"),
     apiKeyUrl: asNullableString(source, at, "apiKeyUrl"),
+    embeddingModel: asNullableString(source, at, "embeddingModel"),
   };
 }
 

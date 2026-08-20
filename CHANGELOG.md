@@ -29,6 +29,13 @@ version is `0.y.z`, anything may change between releases.
 
 ### Added
 
+- Retrieval understands meaning, not just words. A semantic index can be enabled in the
+  Knowledge base section against any provider with an embeddings endpoint — Ollama runs it
+  free and local, OpenAI and Gemini work with the key already in the keychain — and keyword
+  and semantic results are fused by rank, so “money back” now finds the document that only
+  says “refund”. Coverage is reported as a count of embedded chunks, and anything the index
+  has not reached is still found by keywords; a broken or unconfigured index degrades to
+  keyword-only rather than failing the question.
 - The knowledge base reads PDF and Word documents. PDF text extraction runs behind a crash
   boundary so a malformed file is refused with its name rather than taking the app down;
   DOCX paragraphs are read straight out of the document XML. Citations for both quote the

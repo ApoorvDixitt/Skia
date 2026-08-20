@@ -8,14 +8,13 @@
  * - The three ingest outcomes are different facts and are reported as such.
  *   `indexed` wrote a new document; `unchanged` wrote nothing at all;
  *   `replaced` dropped the previous index before writing the new one.
- * - A refused file shows the backend's error verbatim. PDF and DOCX are not
- *   supported yet, and this screen says so plainly rather than letting the
- *   refusal read like a transient failure.
- * - Retrieval is keyword-only, so a question about "money back" will miss a
- *   document that only ever says "refund". Stated here, where documents are
- *   added, because it changes what is worth adding. Both limitations stay
- *   inline as one tight line each; only their longer telling sits in a
- *   `title`.
+ * - A refused file shows the backend's error verbatim, so a scanned PDF or a
+ *   legacy .doc reads as the specific refusal it is, never as a transient
+ *   failure.
+ * - The semantic index reports its coverage as a count, because "semantic
+ *   search: on" would be a lie while half the chunks are still unembedded —
+ *   retrieval quietly falls back to keywords for whatever the index has not
+ *   reached.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -23,8 +22,17 @@ import { open } from "@tauri-apps/plugin-dialog";
 
 import { formatBytes, formatMoment } from "../lib/format";
 import { describeValue } from "../lib/ipc";
-import { fetchDocuments, ingestFile, removeDocument } from "../lib/kb";
-import type { IngestOutcome, KbDocument } from "../lib/kb";
+import {
+  embedPending,
+  fetchDocuments,
+  ingestFile,
+  removeDocument,
+  semanticStatus,
+  setEmbeddingsProvider,
+} from "../lib/kb";
+import type { IngestOutcome, KbDocument, SemanticStatus } from "../lib/kb";
+import { fetchProviderCatalog } from "./providersIpc";
+import type { ProviderEntry } from "./providersIpc";
 import { describeIpcError } from "../lib/stealth";
 import { FailNote, LoadingNote, QuietNote } from "./notes";
 import "./sections.css";
@@ -241,6 +249,10 @@ export function KnowledgeBase() {
   const [removalOutcome, setRemovalOutcome] = useState<RemovalOutcome | null>(
     null,
   );
+  const [semantic, setSemantic] = useState<SemanticStatus | null>(null);
+  const [semanticChoices, setSemanticChoices] = useState<ProviderEntry[]>([]);
+  const [semanticError, setSemanticError] = useState<string | null>(null);
+  const [embedding, setEmbedding] = useState(false);
 
   // Monotonic token: a slow reply from an earlier read must never overwrite a
   // later one. Bumped on unmount so nothing lands after the section closes.
@@ -262,10 +274,70 @@ export function KnowledgeBase() {
 
   useEffect(() => {
     loadDocs();
+    void semanticStatus().then(setSemantic, (error: unknown) => {
+      setSemanticError(describeIpcError(error));
+    });
+    void fetchProviderCatalog().then(
+      (entries) => {
+        // Only providers that actually serve embeddings are offerable, and a
+        // cloud one only once its key exists — the backend enforces this too,
+        // but offering a choice that can only fail is bad furniture.
+        setSemanticChoices(
+          entries.filter((e) => e.embeddingModel !== null && e.configured),
+        );
+      },
+      () => {
+        // The picker degrades to nothing; the status line still renders.
+      },
+    );
     return () => {
       generation.current += 1;
     };
   }, [loadDocs]);
+
+  /** Drain the embedding queue, one bounded batch at a time. */
+  const runEmbedding = useCallback((): void => {
+    setEmbedding(true);
+    setSemanticError(null);
+    const step = (): void => {
+      void embedPending().then(
+        (progress) => {
+          void semanticStatus().then(setSemantic, () => undefined);
+          if (progress.remaining > 0 && progress.embeddedNow > 0) {
+            step();
+          } else {
+            setEmbedding(false);
+          }
+        },
+        (error: unknown) => {
+          setSemanticError(describeIpcError(error));
+          setEmbedding(false);
+        },
+      );
+    };
+    step();
+  }, []);
+
+  const chooseSemantic = useCallback(
+    (providerId: string | null): void => {
+      setSemanticError(null);
+      void setEmbeddingsProvider(providerId).then(
+        (status) => {
+          setSemantic(status);
+          // Turning it on with documents already indexed means a backlog;
+          // start draining it immediately rather than leaving a mystery
+          // "0 of 400" on screen.
+          if (status.providerId !== null && status.embedded < status.total) {
+            runEmbedding();
+          }
+        },
+        (error: unknown) => {
+          setSemanticError(describeIpcError(error));
+        },
+      );
+    },
+    [runEmbedding],
+  );
 
   const reloadDocs = useCallback((): void => {
     setDocs({ kind: "loading" });
@@ -405,14 +477,85 @@ export function KnowledgeBase() {
               <code className="measured">.docx</code> — scanned PDFs without a
               text layer are refused, not half-read.
             </p>
-            <p
-              className="kb-limit"
-              title="Retrieval is keyword-only for now. It matches words, not meaning, which changes what is worth adding."
-            >
-              Retrieval is keyword-only: “money back” will miss a document
-              that only says “refund”.
-            </p>
+            {semantic === null || semantic.providerId === null ? (
+              <p
+                className="kb-limit"
+                title="Without a semantic index, retrieval matches words, not meaning. Enable it below to close that gap."
+              >
+                Retrieval is keyword-only: “money back” will miss a document
+                that only says “refund”.
+              </p>
+            ) : (
+              <p
+                className="kb-limit"
+                title="Hybrid retrieval: keyword and semantic results are fused by rank. Chunks not yet embedded are still found by keywords only."
+              >
+                Semantic index via{" "}
+                <code className="measured">{semantic.model ?? ""}</code>:{" "}
+                {String(semantic.embedded)} of {String(semantic.total)} chunks
+                embedded.
+              </p>
+            )}
           </div>
+
+          {/* ------------------------------------------- semantic controls -- */}
+          <div className="kb-semantic">
+            {semantic !== null && semantic.providerId !== null ? (
+              <>
+                {semantic.embedded < semantic.total ? (
+                  <button
+                    type="button"
+                    className="db-button db-button--ghost"
+                    disabled={embedding}
+                    data-busy={embedding}
+                    aria-busy={embedding}
+                    onClick={runEmbedding}
+                  >
+                    {embedding
+                      ? "Embedding…"
+                      : `Embed ${String(semantic.total - semantic.embedded)} remaining`}
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="db-button db-button--ghost"
+                  disabled={embedding}
+                  onClick={() => {
+                    chooseSemantic(null);
+                  }}
+                >
+                  Turn semantic search off
+                </button>
+              </>
+            ) : semanticChoices.length > 0 ? (
+              <>
+                <span className="legend">Enable semantic search via:</span>
+                {semanticChoices.map((choice) => (
+                  <button
+                    key={choice.id}
+                    type="button"
+                    className="db-button db-button--ghost"
+                    onClick={() => {
+                      chooseSemantic(choice.id);
+                    }}
+                  >
+                    {choice.label}
+                  </button>
+                ))}
+              </>
+            ) : (
+              <span className="legend">
+                Semantic search needs a provider with an embeddings endpoint —
+                Ollama (free, local) or an OpenAI/Gemini key in Providers.
+              </span>
+            )}
+          </div>
+          {semanticError === null ? null : (
+            <FailNote
+              headline="The semantic index reported a problem"
+              message={semanticError}
+            />
+          )}
 
           {pickError === null ? null : (
             <FailNote headline="The file dialog failed" message={pickError} />
