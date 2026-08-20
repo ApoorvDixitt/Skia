@@ -44,7 +44,7 @@ with `#[cfg(target_os = "...")]` and per-target Cargo dependencies, not separate
 | Vector search | sqlite-vec |
 | Embedding and reranking | bge-m3, bge-reranker (local) |
 | Speech to text | Deepgram Nova-3 (cloud) or whisper-rs (local) |
-| Audio capture | cpal, WASAPI loopback, ScreenCaptureKit / CoreAudio |
+| Audio capture | cpal (mic), CoreAudio process taps (macOS far end), WASAPI loopback (Windows far end) |
 | Resampling | rubato |
 | Model access | OpenAI-compatible providers, OpenRouter, Ollama |
 | Secrets | OS keychain |
@@ -179,6 +179,19 @@ Phase 0 work:
    in-place replacement produces a macOS "app is damaged" error. This needs testing on current
    macOS before anyone relies on auto-update.
 
-A third, smaller one: macOS 14.4+ offers a CoreAudio process-tap API that captures per-process
-audio without the alarming screen-recording permission prompt. ScreenCaptureKit is the default
-path; the process tap is worth evaluating as a cleaner replacement.
+A third one is now answered. ~~macOS 14.4+ offers a CoreAudio process-tap API that captures
+per-process audio without the alarming screen-recording permission prompt. ScreenCaptureKit is
+the default path; the process tap is worth evaluating as a cleaner replacement.~~
+**Measured on macOS 26.5** — see the [audio harness](../tools/audio-capture-harness). The tap
+is the default path, not a replacement to evaluate: `AudioHardwareCreateProcessTap` plus a
+private aggregate device delivers 48 kHz stereo float at real time (375 callbacks, 4.000 s
+captured in 4.0 s, worst gap 10.8 ms) and **never involves Screen Recording permission at
+all**. ScreenCaptureKit is the fallback for macOS before 14.2.
+
+It carries its own trap, which is worse than a prompt. **Without audio-capture consent a tap
+does not fail — it succeeds and returns silence**: 281 callbacks at real-time pacing, peak
+amplitude 0.0000, with audio definitely playing. There is no error to catch, Apple ships no
+public API to check the grant, and the prompt only exists for a bundle carrying
+`NSAudioCaptureUsageDescription`. So Skia's Info.plist needs that key, and the audio engine has
+to treat all-zero input as a consent state and report it the way `stealth.rs` reports capture
+exclusion — what actually happened, never what was requested.
